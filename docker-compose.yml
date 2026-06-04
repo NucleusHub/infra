@@ -28,20 +28,20 @@ services:
       - "traefik.http.services.nucleus.loadbalancer.server.port=80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./hub/public:/usr/share/nginx/static:ro
+      - ../hub/public:/usr/share/nginx/static:ro
     depends_on:
       - hub
       - watchlist-client
 
   hub:
     build:
-      context: ./hub
+      context: ../hub
     restart: unless-stopped
     volumes:
-      - ./hub/src:/app/src
-      - ./hub/public:/app/public
-      - ./hub/index.html:/app/index.html
-      - ./hub/vite.config.js:/app/vite.config.js
+      - ../hub/src:/app/src
+      - ../hub/public:/app/public
+      - ../hub/index.html:/app/index.html
+      - ../hub/vite.config.js:/app/vite.config.js
 
   mongo:
     image: mongo:7
@@ -57,13 +57,13 @@ services:
 
   watchlist-server:
     build:
-      context: ./watchlist/server
+      context: ../watchlist/server
     restart: unless-stopped
     environment:
       MONGODB_URI: mongodb://mongo:27017/nucleus
       PORT: 3000
     volumes:
-      - ./watchlist/server:/app
+      - ../watchlist/server:/app
       - uploads_data:/app/uploads
     depends_on:
       mongo:
@@ -77,15 +77,15 @@ services:
 
   watchlist-client:
     build:
-      context: ./watchlist/client
+      context: ../watchlist/client
     restart: unless-stopped
     environment:
       API_TARGET: http://watchlist-server:3000
       VITE_TMDB_API_KEY: ${VITE_TMDB_API_KEY}
     volumes:
-      - ./watchlist/client/src:/app/src
-      - ./watchlist/client/index.html:/app/index.html
-      - ./watchlist/client/vite.config.js:/app/vite.config.js
+      - ../watchlist/client/src:/app/src
+      - ../watchlist/client/index.html:/app/index.html
+      - ../watchlist/client/vite.config.js:/app/vite.config.js
     depends_on:
       watchlist-server:
         condition: service_healthy
