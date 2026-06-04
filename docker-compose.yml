@@ -64,6 +64,7 @@ services:
       PORT: 3000
     volumes:
       - ../watchlist/server:/app
+      - watchlist_server_modules:/app/node_modules
       - uploads_data:/app/uploads
     depends_on:
       mongo:
@@ -93,4 +94,5 @@ services:
 volumes:
   mongo_data:
   uploads_data:
+  watchlist_server_modules:
 
