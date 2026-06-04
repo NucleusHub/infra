@@ -1,0 +1,96 @@
+name: nucleus
+
+services:
+  traefik:
+    image: traefik:v3
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nucleus.rule=Host(`nucleus.home`)"
+      - "traefik.http.routers.nucleus.entrypoints=web"
+      - "traefik.http.routers.nucleus.priority=10"
+      - "traefik.http.routers.nucleus-catchall.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.nucleus-catchall.entrypoints=web"
+      - "traefik.http.routers.nucleus-catchall.priority=1"
+      - "traefik.http.routers.nucleus-catchall.service=nucleus"
+      - "traefik.http.services.nucleus.loadbalancer.server.port=80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./hub/public:/usr/share/nginx/static:ro
+    depends_on:
+      - hub
+      - watchlist-client
+
+  hub:
+    build:
+      context: ./hub
+    restart: unless-stopped
+    volumes:
+      - ./hub/src:/app/src
+      - ./hub/public:/app/public
+      - ./hub/index.html:/app/index.html
+      - ./hub/vite.config.js:/app/vite.config.js
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')", "--quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  watchlist-server:
+    build:
+      context: ./watchlist/server
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3000
+    volumes:
+      - ./watchlist/server:/app
+      - uploads_data:/app/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/watchlist',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  watchlist-client:
+    build:
+      context: ./watchlist/client
+    restart: unless-stopped
+    environment:
+      API_TARGET: http://watchlist-server:3000
+      VITE_TMDB_API_KEY: ${VITE_TMDB_API_KEY}
+    volumes:
+      - ./watchlist/client/src:/app/src
+      - ./watchlist/client/index.html:/app/index.html
+      - ./watchlist/client/vite.config.js:/app/vite.config.js
+    depends_on:
+      watchlist-server:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  uploads_data:
+
