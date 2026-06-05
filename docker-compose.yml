@@ -32,6 +32,7 @@ services:
     depends_on:
       - hub
       - watchlist-client
+      - goal-calendar
 
   hub:
     build:
@@ -91,8 +92,41 @@ services:
       watchlist-server:
         condition: service_healthy
 
+  goal-calendar-server:
+    build:
+      context: ../goal-calendar/server
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3001
+    volumes:
+      - ../goal-calendar/server:/app
+      - goal_calendar_server_modules:/app/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/goals',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  goal-calendar:
+    build:
+      context: ../goal-calendar/client
+    restart: unless-stopped
+    volumes:
+      - ../goal-calendar/client/src:/app/src
+      - ../goal-calendar/client/index.html:/app/index.html
+      - ../goal-calendar/client/vite.config.js:/app/vite.config.js
+    depends_on:
+      goal-calendar-server:
+        condition: service_healthy
+
 volumes:
   mongo_data:
   uploads_data:
   watchlist_server_modules:
+  goal_calendar_server_modules:
 
