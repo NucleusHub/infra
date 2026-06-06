@@ -43,6 +43,7 @@ services:
       - ../hub/index.html:/app/index.html
       - ../hub/vite.config.js:/app/vite.config.js
       - ../widgets:/app/widgets:ro
+      - ../core:/app/core:ro
 
   registry:
     build:
