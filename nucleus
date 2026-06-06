@@ -1,0 +1,13 @@
+#!/bin/sh
+# Nucleus — manifest-driven orchestration wrapper
+# Usage: ./nucleus [docker compose args]
+#   ./nucleus up -d
+#   ./nucleus down
+#   ./nucleus logs -f hub
+set -e
+cd "$(dirname "$0")"
+node infra/generate.js
+docker compose \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.override.yml \
+  "$@"
