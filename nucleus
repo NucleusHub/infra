@@ -6,8 +6,8 @@
 #   ./nucleus logs -f hub
 set -e
 cd "$(dirname "$0")"
-node infra/generate.js
+node generate.js
 docker compose \
-  -f infra/docker-compose.yml \
-  -f infra/docker-compose.override.yml \
+  -f docker-compose.yml \
+  -f docker-compose.override.yml \
   "$@"
