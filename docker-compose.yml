@@ -31,24 +31,30 @@ services:
       - ../hub/public:/usr/share/nginx/static:ro
     depends_on:
       - hub
-      - watchlist-client
-      - goal-calendar
-      - spotify-server
-      - spotify-client
+      - registry
 
   hub:
     build:
       context: ../hub
     restart: unless-stopped
-    environment:
-      SPOTIFY_API_TARGET: http://spotify-server:3002
-    depends_on:
-      - spotify-server
     volumes:
       - ../hub/src:/app/src
       - ../hub/public:/app/public
       - ../hub/index.html:/app/index.html
       - ../hub/vite.config.js:/app/vite.config.js
+      - ../widgets:/app/widgets:ro
+
+  registry:
+    build:
+      context: ./registry
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      APPS_DIR: /apps
+      WIDGETS_DIR: /widgets
+    volumes:
+      - ../apps:/apps:ro
+      - ../widgets:/widgets:ro
 
   mongo:
     image: mongo:7
@@ -62,114 +68,5 @@ services:
       retries: 10
       start_period: 10s
 
-  watchlist-server:
-    build:
-      context: ../watchlist/server
-    restart: unless-stopped
-    environment:
-      MONGODB_URI: mongodb://mongo:27017/nucleus
-      PORT: 3000
-    volumes:
-      - ../watchlist/server:/app
-      - watchlist_server_modules:/app/node_modules
-      - uploads_data:/app/uploads
-    depends_on:
-      mongo:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/watchlist',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  watchlist-client:
-    build:
-      context: ../watchlist/client
-    restart: unless-stopped
-    environment:
-      API_TARGET: http://watchlist-server:3000
-      VITE_TMDB_API_KEY: ${VITE_TMDB_API_KEY}
-    volumes:
-      - ../watchlist/client/src:/app/src
-      - ../watchlist/client/index.html:/app/index.html
-      - ../watchlist/client/vite.config.js:/app/vite.config.js
-    depends_on:
-      watchlist-server:
-        condition: service_healthy
-
-  goal-calendar-server:
-    build:
-      context: ../goal-calendar/server
-    restart: unless-stopped
-    environment:
-      MONGODB_URI: mongodb://mongo:27017/nucleus
-      PORT: 3001
-    volumes:
-      - ../goal-calendar/server:/app
-      - goal_calendar_server_modules:/app/node_modules
-    depends_on:
-      mongo:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/goals',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  goal-calendar:
-    build:
-      context: ../goal-calendar/client
-    restart: unless-stopped
-    volumes:
-      - ../goal-calendar/client/src:/app/src
-      - ../goal-calendar/client/index.html:/app/index.html
-      - ../goal-calendar/client/vite.config.js:/app/vite.config.js
-    depends_on:
-      goal-calendar-server:
-        condition: service_healthy
-
-  spotify-server:
-    build:
-      context: ../widgets/spotify/server
-    restart: unless-stopped
-    environment:
-      PORT: 3002
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
-      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-http://nucleus.home/api/spotify/callback}
-      SPOTIFY_SUCCESS_REDIRECT: ${SPOTIFY_SUCCESS_REDIRECT:-http://nucleus.home/spotify}
-    volumes:
-      - ../widgets/spotify/server:/app
-      - spotify_server_modules:/app/node_modules
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/api/spotify/status',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  spotify-client:
-    build:
-      context: ../widgets
-      dockerfile: spotify/client/Dockerfile
-    restart: unless-stopped
-    environment:
-      API_TARGET: http://spotify-server:3002
-    volumes:
-      - ../widgets/spotify/client/src:/app/spotify/client/src
-      - ../widgets/spotify/client/index.html:/app/spotify/client/index.html
-      - ../widgets/spotify/client/vite.config.js:/app/spotify/client/vite.config.js
-      - ../widgets/core:/app/core
-    depends_on:
-      spotify-server:
-        condition: service_healthy
-
 volumes:
   mongo_data:
-  uploads_data:
-  watchlist_server_modules:
-  goal_calendar_server_modules:
-  spotify_server_modules:
-
