@@ -1,0 +1,51 @@
+#!/bin/sh
+# Pull latest from all Nucleus git repos
+cd "$(dirname "$0")"
+INFRA=$(pwd)
+ROOT=$(dirname "$INFRA")
+
+UPDATED=0
+FAILED=0
+
+pull() {
+  name="$1"
+  dir="$2"
+  [ -d "$dir/.git" ] || return
+
+  printf "  %-32s" "$name"
+  if output=$(git -C "$dir" pull 2>&1); then
+    if echo "$output" | grep -q "Already up to date"; then
+      echo "up to date"
+    else
+      echo "updated"
+      UPDATED=$((UPDATED + 1))
+    fi
+  else
+    echo "FAILED"
+    echo "$output" | sed 's/^/    /'
+    FAILED=$((FAILED + 1))
+  fi
+}
+
+echo "Pulling Nucleus repos..."
+echo ""
+
+pull "infra"   "$INFRA"
+pull "hub"     "$ROOT/hub"
+pull "core"    "$ROOT/core"
+pull "widgets" "$ROOT/widgets"
+
+for dir in "$ROOT/apps"/*/; do
+  dir="${dir%/}"
+  pull "apps/$(basename "$dir")" "$dir"
+done
+
+echo ""
+if [ "$FAILED" -gt 0 ]; then
+  echo "$FAILED repo(s) failed to pull."
+  exit 1
+elif [ "$UPDATED" -gt 0 ]; then
+  echo "Done. Run ./nucleus up -d to apply."
+else
+  echo "Everything up to date."
+fi
