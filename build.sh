@@ -13,16 +13,19 @@ warn() { echo -e "${yellow}⚠  $*${reset}"; }
 # ── 1. Build Vue frontends ────────────────────────────────────────────────────
 
 step "[1/4] Building hub"
+ln -sfn "$REPO/core" "$REPO/hub/core"
 cd "$REPO/hub"
 npm ci --prefer-offline
 npm run build
 
 step "[2/4] Building watchlist client"
+ln -sfn "$REPO/core" "$REPO/apps/watchlist/client/core"
 cd "$REPO/apps/watchlist/client"
 npm ci --prefer-offline
 npm run build
 
 step "[3/4] Building goal-calendar client"
+ln -sfn "$REPO/core" "$REPO/apps/goal-calendar/client/core"
 cd "$REPO/apps/goal-calendar/client"
 npm ci --prefer-offline
 npm run build
