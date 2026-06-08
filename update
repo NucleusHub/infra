@@ -1,34 +1,76 @@
 #!/bin/sh
 # Pull latest from all Nucleus git repos
+# Usage: ./update [repo...]
+#   ./update              — pull everything
+#   ./update hub infra    — pull hub and infra only
+#   ./update apps         — pull all apps
+#   ./update apps/watchlist — pull one app
 cd "$(dirname "$0")"
 INFRA=$(pwd)
 ROOT=$(dirname "$INFRA")
 
 UPDATED=0
 FAILED=0
+FILTERS="$*"
+
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+matches() {
+  [ -z "$FILTERS" ] && return 0
+  for f in $FILTERS; do
+    [ "$1" = "$f" ] && return 0
+    case "$1" in "$f"/*) return 0 ;; esac
+  done
+  return 1
+}
 
 pull() {
   name="$1"
   dir="$2"
   [ -d "$dir/.git" ] || return
+  matches "$name" || return
 
-  printf "  %-32s" "$name"
-  if output=$(git -C "$dir" pull 2>&1); then
-    if echo "$output" | grep -q "Already up to date"; then
-      echo "up to date"
+  tmpfile=$(mktemp)
+  git -C "$dir" pull >"$tmpfile" 2>&1 &
+  pid=$!
+
+  i=0
+  bs=$(printf '\\')
+  while kill -0 "$pid" 2>/dev/null; do
+    case $((i % 4)) in
+      0) c='|' ;; 1) c='/' ;; 2) c='-' ;; 3) c="$bs" ;;
+    esac
+    printf "\r  ${DIM}%-32s${RESET} ${YELLOW}%s${RESET}" "$name" "$c"
+    i=$((i + 1))
+    sleep 0.1
+  done
+
+  wait "$pid"
+  code=$?
+
+  if [ "$code" -eq 0 ]; then
+    if grep -q "Already up to date" "$tmpfile"; then
+      printf "\r  ${DIM}%-32s ✓ up to date${RESET}\n" "$name"
     else
-      echo "updated"
+      printf "\r  %-32s ${GREEN}✓ updated${RESET}\n" "$name"
       UPDATED=$((UPDATED + 1))
     fi
   else
-    echo "FAILED"
-    echo "$output" | sed 's/^/    /'
+    printf "\r  %-32s ${RED}✗ failed${RESET}\n" "$name"
+    sed 's/^/    /' "$tmpfile"
     FAILED=$((FAILED + 1))
   fi
+
+  rm -f "$tmpfile"
 }
 
-echo "Pulling Nucleus repos..."
-echo ""
+printf "\n${BOLD}Pulling Nucleus repos...${RESET}\n\n"
 
 pull "infra"   "$INFRA"
 pull "hub"     "$ROOT/hub"
@@ -42,10 +84,11 @@ done
 
 echo ""
 if [ "$FAILED" -gt 0 ]; then
-  echo "$FAILED repo(s) failed to pull."
+  printf "${RED}✗ $FAILED repo(s) failed to pull.${RESET}\n"
   exit 1
 elif [ "$UPDATED" -gt 0 ]; then
-  echo "Done. Run ./nucleus up -d to apply."
+  printf "${GREEN}✓ Done.${RESET} Run ${BOLD}./nucleus up -d${RESET} to apply.\n"
 else
-  echo "Everything up to date."
+  printf "${GREEN}✓ Everything up to date.${RESET}\n"
 fi
+echo ""
