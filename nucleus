@@ -6,6 +6,16 @@
 #   ./nucleus logs -f hub
 set -e
 cd "$(dirname "$0")"
+
+# Detect AVX — MongoDB 5+ requires it; fall back to 4.4 on older CPUs
+if grep -q ' avx ' /proc/cpuinfo 2>/dev/null; then
+  MONGO_IMAGE="mongo:7"
+else
+  MONGO_IMAGE="mongo:4.4"
+  echo "[nucleus] No AVX detected — using mongo:4.4"
+fi
+export MONGO_IMAGE
+
 node generate.js
 docker compose \
   -f docker-compose.yml \
