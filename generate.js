@@ -30,9 +30,12 @@ function nginxLocation(path, upstream, websocket = false) {
   const ws = websocket ? `
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";` : ''
+  // Use a variable so nginx resolves the upstream per-request (via Docker DNS)
+  // rather than at startup — prevents boot failure when a service isn't up yet.
   return `
     location ${path} {
-        proxy_pass http://${upstream};
+        set $upstream ${upstream};
+        proxy_pass http://$upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;${ws}
@@ -49,6 +52,9 @@ function generateNginx(apps, widgets) {
   return `server {
     listen 80 default_server;
     server_name nucleus.home;
+
+    # Docker's internal DNS — lets nginx start even when optional services aren't up yet
+    resolver 127.0.0.11 valid=10s ipv6=off;
 
     location /api/registry {
         proxy_pass http://registry:4000;
