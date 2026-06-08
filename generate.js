@@ -26,14 +26,33 @@ function readManifests(baseDir, filename) {
 
 // ── Nginx ──────────────────────────────────────────────────────────────────
 
-function nginxLocation(path, upstream, websocket = false) {
+function nginxLocation(path, upstream, { websocket = false, cors = false, maxBodySize = null } = {}) {
   const ws = websocket ? `
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";` : ''
+
+  // CORS: handle OPTIONS preflight then add Allow-Origin to all proxied responses.
+  const corsBlock = cors ? `
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, DELETE, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' '*' always;
+            add_header 'Access-Control-Max-Age' '3000' always;
+            add_header 'Content-Length' '0' always;
+            return 204;
+        }
+        add_header 'Access-Control-Allow-Origin' '*' always;` : ''
+
+  // maxBodySize: remove nginx body size limit and stream request body to upstream.
+  // Set to "0" for unlimited (e.g. file upload endpoints).
+  const sizeBlock = maxBodySize !== null ? `
+        client_max_body_size ${maxBodySize};
+        proxy_request_buffering off;` : ''
+
   // Use a variable so nginx resolves the upstream per-request (via Docker DNS)
   // rather than at startup — prevents boot failure when a service isn't up yet.
   return `
-    location ${path} {
+    location ${path} {${corsBlock}${sizeBlock}
         set $upstream ${upstream};
         proxy_pass http://$upstream;
         proxy_http_version 1.1;
@@ -47,17 +66,20 @@ function generateNginx(apps, widgets) {
     .flatMap(m => m.nginx?.routes ?? [])
     .sort((a, b) => b.path.length - a.path.length) // longest path first for readability
 
-  const blocks = routes.map(r => nginxLocation(r.path, r.upstream, r.websocket))
+  const blocks = routes.map(r => nginxLocation(r.path, r.upstream, r))
 
-  return `server {
-    listen 80 default_server;
-    server_name _;
-    return 301 https://$host$request_uri;
+  return `# Redirect nucleus.home HTTP traffic to HTTPS (external access with TLS cert)
+server {
+    listen 80;
+    server_name nucleus.home;
+    return 301 https://nucleus.home$request_uri;
 }
 
+# Main server — HTTPS for nucleus.home, plain HTTP for localhost / IP access
 server {
-    listen 443 ssl default_server;
-    server_name nucleus.home;
+    listen 80 default_server;
+    listen 443 ssl;
+    server_name _;
 
     ssl_certificate /etc/ssl/certs/nucleus.crt;
     ssl_certificate_key /etc/ssl/private/nucleus.key;
