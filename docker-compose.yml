@@ -1,31 +1,11 @@
 name: nucleus
 
 services:
-  traefik:
-    image: traefik:v3
-    restart: unless-stopped
-    command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.nucleus.rule=Host(`nucleus.home`)"
-      - "traefik.http.routers.nucleus.entrypoints=web"
-      - "traefik.http.routers.nucleus.priority=10"
-      - "traefik.http.routers.nucleus-catchall.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.nucleus-catchall.entrypoints=web"
-      - "traefik.http.routers.nucleus-catchall.priority=1"
-      - "traefik.http.routers.nucleus-catchall.service=nucleus"
-      - "traefik.http.services.nucleus.loadbalancer.server.port=80"
+    ports:
+      - "80:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ../hub/public:/usr/share/nginx/static:ro
