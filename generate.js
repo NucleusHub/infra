@@ -51,7 +51,16 @@ function generateNginx(apps, widgets) {
 
   return `server {
     listen 80 default_server;
+    server_name _;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl default_server;
     server_name nucleus.home;
+
+    ssl_certificate /etc/ssl/certs/nucleus.crt;
+    ssl_certificate_key /etc/ssl/private/nucleus.key;
 
     # Docker's internal DNS — lets nginx start even when optional services aren't up yet
     resolver 127.0.0.11 valid=10s ipv6=off;

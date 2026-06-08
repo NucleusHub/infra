@@ -6,9 +6,12 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ../hub/public:/usr/share/nginx/static:ro
+      - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
+      - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
     depends_on:
       - hub
       - registry
