@@ -234,6 +234,14 @@ COMPOSE
 
 # ── 4. Deploy ─────────────────────────────────────────────────────────────────
 
+if grep -q avx /proc/cpuinfo 2>/dev/null; then
+  export MONGO_IMAGE=mongo:7
+  warn "AVX detected — using mongo:7"
+else
+  export MONGO_IMAGE=mongo:4.4
+  warn "No AVX — using mongo:4.4"
+fi
+
 step "Starting production stack"
 cd "$REPO/infra"
 docker compose -f docker-compose.prod.yml up -d --build
