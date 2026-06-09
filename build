@@ -11,27 +11,34 @@ bold="\033[1m"; green="\033[32m"; yellow="\033[33m"; reset="\033[0m"
 step() { echo -e "\n${bold}${green}▶ $*${reset}"; }
 warn() { echo -e "${yellow}⚠  $*${reset}"; }
 
+# ── Load .env (provides VITE_* vars baked into frontend builds) ───────────────
+if [[ -f "$REPO/infra/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO/infra/.env"
+  set +a
+fi
+
 # ── 1. Build Vue frontends ────────────────────────────────────────────────────
 
-step "[1/4] Building hub"
+step "Building hub"
 ln -sfn "$REPO/core" "$REPO/hub/core"
 cd "$REPO/hub"
 npm ci --prefer-offline
 npm run build
 
-step "[2/4] Building watchlist client"
-ln -sfn "$REPO/core" "$REPO/apps/watchlist/client/core"
-cd "$REPO/apps/watchlist/client"
-npm ci --prefer-offline
-npm run build
+# Auto-discover every app client (apps/*/client with a vite.config.js)
+while IFS= read -r -d '' cfg; do
+  client_dir="$(dirname "$cfg")"
+  app_name="$(basename "$(dirname "$client_dir")")"
+  step "Building $app_name client"
+  ln -sfn "$REPO/core" "$client_dir/core"
+  cd "$client_dir"
+  npm ci --prefer-offline
+  npm run build
+done < <(find "$REPO/apps" -maxdepth 3 -name "vite.config.js" -path "*/client/*" -print0 | sort -z)
 
-step "[3/4] Building goal-calendar client"
-ln -sfn "$REPO/core" "$REPO/apps/goal-calendar/client/core"
-cd "$REPO/apps/goal-calendar/client"
-npm ci --prefer-offline
-npm run build
-
-step "[4/4] Building spotify widget"
+step "Building widgets"
 cd "$REPO/widgets"
 pnpm install --frozen-lockfile
 pnpm run build
@@ -49,7 +56,7 @@ server {
     ssl_certificate     /etc/ssl/certs/nucleus.crt;
     ssl_certificate_key /etc/ssl/private/nucleus.key;
 
-    root /usr/share/nginx/html;
+    resolver 127.0.0.11 valid=10s ipv6=off;
 
     # ── Backend API routes ─────────────────────────────────────────────────
 
@@ -74,6 +81,32 @@ server {
         proxy_set_header   X-Real-IP    $remote_addr;
     }
 
+    location /api/orbit {
+        client_max_body_size 0;
+        proxy_request_buffering off;
+        proxy_pass         http://orbit-server:3003;
+        proxy_http_version 1.1;
+        proxy_set_header   Host         $host;
+        proxy_set_header   X-Real-IP    $remote_addr;
+    }
+
+    location /orbit-uploads {
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '*' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, PUT, DELETE, HEAD, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' '*' always;
+            add_header 'Access-Control-Max-Age' '3000' always;
+            add_header 'Content-Length' '0' always;
+            return 204;
+        }
+        add_header 'Access-Control-Allow-Origin' '*' always;
+        set $minio minio:9000;
+        proxy_pass         http://$minio;
+        proxy_http_version 1.1;
+        proxy_set_header   Host         $host;
+        proxy_set_header   X-Real-IP    $remote_addr;
+    }
+
     location /uploads {
         proxy_pass         http://watchlist-server:3000;
         proxy_http_version 1.1;
@@ -89,26 +122,37 @@ server {
     }
 
     # ── Static SPA routes ──────────────────────────────────────────────────
+    # Each app is mounted at a separate /srv/* path to avoid nesting bind mounts
+    # inside a read-only parent mount (Docker limitation).
 
     location /watchlist {
+        root /srv;
         try_files $uri $uri/ /watchlist/index.html;
     }
 
     location /goals {
+        root /srv;
         try_files $uri $uri/ /goals/index.html;
     }
 
     location /spotify {
+        root /srv;
         try_files $uri $uri/ /spotify/index.html;
     }
 
+    location /orbit {
+        root /srv;
+        try_files $uri $uri/ /orbit/index.html;
+    }
+
     location ~* ^(/watchlist)?/favicon\.ico$ {
-        root /usr/share/nginx/static;
+        root /srv/static;
         try_files /favicon.ico =404;
     }
 
     # Hub SPA — catch-all must come last
     location / {
+        root /srv/hub;
         try_files $uri $uri/ /index.html;
     }
 }
@@ -132,17 +176,19 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - ../hub/dist:/usr/share/nginx/html:ro
-      - ../apps/watchlist/client/dist:/usr/share/nginx/html/watchlist:ro
-      - ../apps/goal-calendar/client/dist:/usr/share/nginx/html/goals:ro
-      - ../widgets/spotify/client/dist:/usr/share/nginx/html/spotify:ro
-      - ../hub/public:/usr/share/nginx/static:ro
+      - ../hub/dist:/srv/hub:ro
+      - ../apps/watchlist/client/dist:/srv/watchlist:ro
+      - ../apps/goal-calendar/client/dist:/srv/goals:ro
+      - ../apps/orbit/client/dist:/srv/orbit:ro
+      - ../widgets/spotify/client/dist:/srv/spotify:ro
+      - ../hub/public:/srv/static:ro
       - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
       - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
     depends_on:
       - registry
       - watchlist-server
       - goal-calendar-server
+      - orbit-server
       - spotify-server
 
   registry:
@@ -195,6 +241,32 @@ services:
       retries: 10
       start_period: 10s
 
+  orbit-server:
+    build:
+      context: ../apps/orbit/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3003
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-nucleusadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-nucleuschangeme}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost}
+      MINIO_BUCKET: ${MINIO_BUCKET:-orbit-uploads}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/api/orbit/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
   spotify-server:
     build:
       context: ../widgets/spotify/server
@@ -225,8 +297,29 @@ services:
       retries: 10
       start_period: 10s
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-nucleusadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-nucleuschangeme}
+      MINIO_SERVER_URL: ${MINIO_PUBLIC_URL:-http://localhost}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
 volumes:
   mongo_data:
+  minio_data:
   uploads_data:
 COMPOSE
 
@@ -242,10 +335,11 @@ fi
 
 step "Starting production stack"
 cd "$REPO/infra"
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 
 echo -e "\n${bold}${green}✓ Production stack is up.${reset}"
 echo "  Hub       → http://nucleus.home/"
 echo "  Watchlist → http://nucleus.home/watchlist/"
 echo "  Goals     → http://nucleus.home/goals/"
+echo "  Orbit     → http://nucleus.home/orbit/"
 echo "  Spotify   → http://nucleus.home/spotify/"
