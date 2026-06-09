@@ -26,10 +26,11 @@ npm_install() { npm ci --prefer-offline 2>/dev/null || npm install; }
 
 step "Building hub"
 ln -sfn "$REPO/core" "$REPO/hub/core"
-# Auto-symlink any app with a top-level src/ (hub library convention)
+# Auto-symlink hub library apps (client/ dir with no vite.config.js = not a standalone app)
 for app_dir in "$REPO/apps"/*/; do
   app_id="$(basename "$app_dir")"
-  [[ -d "$app_dir/src" ]] && ln -sfn "$app_dir/src" "$REPO/hub/$app_id"
+  client_dir="$app_dir/client"
+  [[ -d "$client_dir" && ! -f "$client_dir/vite.config.js" ]] && ln -sfn "$client_dir" "$REPO/hub/$app_id"
 done
 cd "$REPO/hub"
 npm_install

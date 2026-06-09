@@ -114,13 +114,19 @@ ${blocks.join('\n')}
 
 // ── Compose override ───────────────────────────────────────────────────────
 
-// Apps with a top-level src/ are hub libraries (not standalone clients).
-// Their src is mounted into the hub container so the @<id> vite alias resolves.
+// Apps with a client/ dir but no client/vite.config.js are hub libraries
+// (standalone apps always have vite.config.js; library-only apps don't).
+// Their client/ is mounted into the hub container so the @<id> vite alias resolves.
 function findHubLibraries() {
   if (!existsSync(APPS_DIR)) return []
   return readdirSync(APPS_DIR, { withFileTypes: true })
-    .filter(e => e.isDirectory() && existsSync(join(APPS_DIR, e.name, 'src')))
-    .map(e => ({ id: e.name, rel: `../apps/${e.name}/src` }))
+    .filter(e => {
+      const clientDir = join(APPS_DIR, e.name, 'client')
+      return e.isDirectory()
+        && existsSync(clientDir)
+        && !existsSync(join(clientDir, 'vite.config.js'))
+    })
+    .map(e => ({ id: e.name, rel: `../apps/${e.name}/client` }))
 }
 
 function generateOverride(apps, widgets, hubLibs) {
