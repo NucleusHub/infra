@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Builds all Vue frontends for production and starts the stack via Docker Compose.
+# vueDevTools() is excluded automatically (mode=production); Vite never bundles HMR.
 # Run from any directory — paths are resolved relative to this script.
 set -euo pipefail
+
+export NODE_ENV=production
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -33,7 +36,7 @@ npm run build
 step "[4/4] Building spotify widget"
 cd "$REPO/widgets"
 pnpm install --frozen-lockfile
-pnpm run build   # runs vite build for all workspace client packages
+pnpm run build
 
 # ── 2. Write production nginx config ─────────────────────────────────────────
 
@@ -88,8 +91,6 @@ server {
     }
 
     # ── Static SPA routes ──────────────────────────────────────────────────
-    # Each app was built with its matching base path, so assets resolve
-    # correctly without any rewriting.
 
     location /watchlist {
         try_files $uri $uri/ /watchlist/index.html;
@@ -133,7 +134,6 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      # Hub dist is the root; sub-app dists are mounted inside it
       - ../hub/dist:/usr/share/nginx/html:ro
       - ../apps/watchlist/client/dist:/usr/share/nginx/html/watchlist:ro
       - ../apps/goal-calendar/client/dist:/usr/share/nginx/html/goals:ro
@@ -234,12 +234,12 @@ COMPOSE
 
 # ── 4. Deploy ─────────────────────────────────────────────────────────────────
 
-if grep -q avx /proc/cpuinfo 2>/dev/null; then
+if grep -q ' avx ' /proc/cpuinfo 2>/dev/null; then
   export MONGO_IMAGE=mongo:7
   warn "AVX detected — using mongo:7"
 else
   export MONGO_IMAGE=mongo:4.4
-  warn "No AVX — using mongo:4.4"
+  warn "No AVX — falling back to mongo:4.4"
 fi
 
 step "Starting production stack"
