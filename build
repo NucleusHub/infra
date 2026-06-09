@@ -4,8 +4,6 @@
 # Run from any directory — paths are resolved relative to this script.
 set -euo pipefail
 
-export NODE_ENV=production
-
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ── Colour helpers ────────────────────────────────────────────────────────────
