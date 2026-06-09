@@ -19,13 +19,20 @@ if [[ -f "$REPO/infra/.env" ]]; then
   set +a
 fi
 
+# ── npm install helper — prefers ci (clean/reproducible), falls back to install ──
+npm_install() { npm ci --prefer-offline 2>/dev/null || npm install; }
+
 # ── 1. Build Vue frontends ────────────────────────────────────────────────────
 
 step "Building hub"
 ln -sfn "$REPO/core" "$REPO/hub/core"
-ln -sfn "$REPO/apps/pulse/src" "$REPO/hub/pulse"
+# Auto-symlink any app with a top-level src/ (hub library convention)
+for app_dir in "$REPO/apps"/*/; do
+  app_id="$(basename "$app_dir")"
+  [[ -d "$app_dir/src" ]] && ln -sfn "$app_dir/src" "$REPO/hub/$app_id"
+done
 cd "$REPO/hub"
-npm ci --prefer-offline
+npm_install
 npm run build
 
 # Auto-discover every app client (apps/*/client with a vite.config.js)
@@ -35,7 +42,7 @@ while IFS= read -r -d '' cfg; do
   step "Building $app_name client"
   ln -sfn "$REPO/core" "$client_dir/core"
   cd "$client_dir"
-  npm ci --prefer-offline
+  npm_install
   npm run build
 done < <(find "$REPO/apps" -maxdepth 3 -name "vite.config.js" -path "*/client/*" -print0 | sort -z)
 

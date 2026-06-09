@@ -27,7 +27,6 @@ services:
       - ../hub/vite.config.js:/app/vite.config.js
       - ../widgets:/app/widgets:ro
       - ../core:/app/core:ro
-      - ../apps/pulse/src:/app/pulse:ro
 
   registry:
     build:
