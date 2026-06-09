@@ -23,6 +23,7 @@ fi
 
 step "Building hub"
 ln -sfn "$REPO/core" "$REPO/hub/core"
+ln -sfn "$REPO/apps/pulse/src" "$REPO/hub/pulse"
 cd "$REPO/hub"
 npm ci --prefer-offline
 npm run build
