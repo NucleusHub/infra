@@ -16,6 +16,13 @@ else
 fi
 export MONGO_IMAGE
 
+# Persist to .env so plain 'docker compose up' also gets the right image
+if [ -f .env ] && grep -q '^MONGO_IMAGE=' .env; then
+  sed -i "s|^MONGO_IMAGE=.*|MONGO_IMAGE=$MONGO_IMAGE|" .env
+else
+  echo "MONGO_IMAGE=$MONGO_IMAGE" >> .env
+fi
+
 node generate.js
 docker compose \
   -f docker-compose.yml \
