@@ -1,0 +1,158 @@
+# Production stack — no Vite dev servers; nginx serves pre-built static files.
+# Servers run with plain `node index.js` (no --watch).
+name: nucleus
+
+services:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../hub/dist:/srv/hub:ro
+      - ../apps/watchlist/client/dist:/srv/watchlist:ro
+      - ../apps/goal-calendar/client/dist:/srv/goals:ro
+      - ../apps/orbit/client/dist:/srv/orbit:ro
+      - ../widgets/spotify/client/dist:/srv/spotify:ro
+      - ../hub/public:/srv/static:ro
+      - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
+      - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
+    depends_on:
+      - registry
+      - watchlist-server
+      - goal-calendar-server
+      - orbit-server
+      - spotify-server
+
+  registry:
+    build:
+      context: ./registry
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      APPS_DIR: /apps
+      WIDGETS_DIR: /widgets
+    volumes:
+      - ../apps:/apps:ro
+      - ../widgets:/widgets:ro
+
+  watchlist-server:
+    build:
+      context: ../apps/watchlist/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3000
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/watchlist',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  goal-calendar-server:
+    build:
+      context: ../apps/goal-calendar/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3001
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/goals',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  orbit-server:
+    build:
+      context: ../apps/orbit/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      PORT: 3003
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-nucleusadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-nucleuschangeme}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost}
+      MINIO_BUCKET: ${MINIO_BUCKET:-orbit-uploads}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/api/orbit/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  spotify-server:
+    build:
+      context: ../widgets/spotify/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3002
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-http://nucleus.home/api/spotify/callback}
+      SPOTIFY_SUCCESS_REDIRECT: ${SPOTIFY_SUCCESS_REDIRECT:-http://nucleus.home/spotify}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/api/spotify/status',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  mongo:
+    image: ${MONGO_IMAGE:-mongo:7}
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand({ping:1})' --quiet 2>/dev/null || mongo --eval 'db.adminCommand({ping:1})' --quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-nucleusadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-nucleuschangeme}
+      MINIO_SERVER_URL: ${MINIO_PUBLIC_URL:-http://localhost}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+volumes:
+  mongo_data:
+  minio_data:
+  uploads_data:
