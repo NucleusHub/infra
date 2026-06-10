@@ -24,6 +24,7 @@ else
 fi
 
 node generate.js
+docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T nginx nginx -s reload 2>/dev/null || true
 docker compose \
   -f docker-compose.yml \
   -f docker-compose.override.yml \
