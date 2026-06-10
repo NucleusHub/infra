@@ -49,7 +49,7 @@ services:
 
   auth-server:
     build:
-      context: ../apps/auth/server
+      context: ../core/auth-server
     restart: unless-stopped
     command: ["node", "index.js"]
     environment:
