@@ -331,8 +331,10 @@ ${serverBlocks}
 `
   }
 
-  out += `volumes:\n`
-  namedVols.forEach(v => { out += `  ${v}:\n` })
+  if (namedVols.size > 0) {
+    out += `volumes:\n`
+    namedVols.forEach(v => { out += `  ${v}:\n` })
+  }
 
   return out
 }
