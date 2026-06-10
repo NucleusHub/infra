@@ -189,6 +189,7 @@ ${spaBlocks.join('\n')}
 function prodServerBlock(m) {
   const s = m.server
   const relDir = '../' + m._dir.slice(ROOT.length + 1).replace(/\\/g, '/')
+  const buildContext = s.context ?? `${relDir}/server`
   const healthUrl = `http://localhost:${s.port}${s.healthEndpoint}`
   const startPeriod = s.startPeriod ?? '10s'
 
@@ -206,7 +207,7 @@ function prodServerBlock(m) {
     .join('\n')
 
   let out = `  ${s.service}:\n`
-  out += `    build:\n      context: ${relDir}/server\n`
+  out += `    build:\n      context: ${buildContext}\n`
   out += `    restart: unless-stopped\n`
   out += `    command: ["node", "index.js"]\n`
   out += `    environment:\n${envLines}\n`
