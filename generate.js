@@ -88,7 +88,10 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
 
     location /api/registry {
-        proxy_pass http://registry:4000;
+        # Variable + resolver so nginx re-resolves the registry's IP per request
+        # (survives registry container restarts without an nginx restart).
+        set $registry_upstream registry:4000;
+        proxy_pass http://$registry_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -162,7 +165,10 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
 
     location /api/registry {
-        proxy_pass http://registry:4000;
+        # Variable + resolver so nginx re-resolves the registry's IP per request
+        # (survives registry container restarts without an nginx restart).
+        set $registry_upstream registry:4000;
+        proxy_pass http://$registry_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
