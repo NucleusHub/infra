@@ -34,6 +34,8 @@ services:
         condition: service_healthy
       spotify-server:
         condition: service_healthy
+      sysinfo-server:
+        condition: service_healthy
 
   registry:
     build:
@@ -165,6 +167,20 @@ services:
       SPOTIFY_SUCCESS_REDIRECT: ${SPOTIFY_SUCCESS_REDIRECT:-http://nucleus.home/spotify}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/api/spotify/status',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  sysinfo-server:
+    build:
+      context: ../widgets/sysinfo/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3010
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/api/sysinfo/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 10
