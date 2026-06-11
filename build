@@ -26,6 +26,8 @@ npm_install() { npm ci --prefer-offline 2>/dev/null || npm install; }
 
 step "Building hub"
 ln -sfn "$REPO/core" "$REPO/hub/core"
+# Widgets are discovered by the hub build via import.meta.glob('../../widgets/*/Widget.vue')
+ln -sfn "$REPO/widgets" "$REPO/hub/widgets"
 # Auto-symlink hub library apps (client/ dir with no vite.config.js = not a standalone app)
 for app_dir in "$REPO/apps"/*/; do
   app_id="$(basename "$app_dir")"
