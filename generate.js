@@ -411,8 +411,21 @@ function generateOverride(apps, widgets, hubLibs) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-const apps = readManifests(APPS_DIR, 'nucleus.app.json')
-const widgets = readManifests(WIDGETS_DIR, 'nucleus.widget.json')
+// Core services own their service name and routes. Drop any discovered
+// app/widget that collides — e.g. a stale apps/auth left over from before
+// auth moved into core/ — so we never emit duplicate compose keys / nginx
+// locations.
+const coreServiceNames = new Set(CORE_SERVICES.map(c => c.server?.service).filter(Boolean))
+const dropCoreCollisions = list => list.filter(m => {
+  if (coreServiceNames.has(m.server?.service)) {
+    console.warn(`  Skipping ${m.id ?? m._dir}: '${m.server.service}' is provided by core, not apps/widgets`)
+    return false
+  }
+  return true
+})
+
+const apps = dropCoreCollisions(readManifests(APPS_DIR, 'nucleus.app.json'))
+const widgets = dropCoreCollisions(readManifests(WIDGETS_DIR, 'nucleus.widget.json'))
 const hubLibs = findHubLibraries()
 
 console.log(`Apps:    ${apps.length ? apps.map(a => a.id).join(', ') : 'none'}`)
