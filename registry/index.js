@@ -14,8 +14,16 @@ function readManifests(baseDir, filename) {
       .flatMap(dir => {
         const manifestPath = join(baseDir, dir.name, filename)
         try {
-          const raw = readFileSync(manifestPath, 'utf8')
-          return [JSON.parse(raw)]
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+          // Inline the app/widget's own icon.svg so clients can render it
+          // themeably (currentColor) without a per-app build dependency.
+          const iconFile = typeof manifest.icon === 'string' && manifest.icon.endsWith('.svg')
+            ? manifest.icon
+            : 'icon.svg'
+          try {
+            manifest.iconSvg = readFileSync(join(baseDir, dir.name, iconFile), 'utf8')
+          } catch { /* no icon shipped */ }
+          return [manifest]
         } catch {
           return []
         }

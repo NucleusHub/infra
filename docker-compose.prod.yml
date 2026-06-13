@@ -12,6 +12,7 @@ services:
     volumes:
       - ../hub/dist:/srv/hub:ro
       - ../hub/public:/srv/static:ro
+      - ../apps/admin/client/dist:/srv/admin:ro
       - ../apps/goal-calendar/client/dist:/srv/goals:ro
       - ../apps/orbit/client/dist:/srv/orbit:ro
       - ../apps/watchlist/client/dist:/srv/watchlist:ro
