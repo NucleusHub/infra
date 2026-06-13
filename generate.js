@@ -8,6 +8,29 @@ const ROOT = resolve(INFRA, '..')
 const APPS_DIR = join(ROOT, 'apps')
 const WIDGETS_DIR = join(ROOT, 'widgets')
 
+// Core services are ALWAYS present — they're not modular/discoverable apps, so
+// they live in core/ and are hardcoded here (nginx route + prod container)
+// instead of carrying a manifest under apps/. (Dev containers live in the base
+// docker-compose.yml.) The registry never sees these, so they don't appear as
+// manageable apps in the admin console.
+const CORE_SERVICES = [
+  {
+    _dir: join(ROOT, 'core', 'auth-server'),
+    nginx: { routes: [{ path: '/api/auth', upstream: 'auth-server:3005' }] },
+    server: {
+      service: 'auth-server',
+      context: '../core/auth-server',
+      port: 3005,
+      healthEndpoint: '/api/auth/health',
+      env: {
+        MONGODB_URI: 'mongodb://mongo:27017/nucleus',
+        JWT_SECRET: '${JWT_SECRET:-nucleus-jwt-secret}',
+      },
+      depends: ['mongo'],
+    },
+  },
+]
+
 function readManifests(baseDir, filename) {
   if (!existsSync(baseDir)) return []
   return readdirSync(baseDir, { withFileTypes: true })
@@ -62,7 +85,7 @@ function nginxLocation(path, upstream, { websocket = false, cors = false, maxBod
 }
 
 function generateNginx(apps, widgets) {
-  const routes = [...apps, ...widgets]
+  const routes = [...apps, ...widgets, ...CORE_SERVICES]
     .flatMap(m => m.nginx?.routes ?? [])
     .sort((a, b) => b.path.length - a.path.length) // longest path first for readability
 
@@ -118,7 +141,7 @@ ${blocks.join('\n')}
 // ── Prod Nginx ─────────────────────────────────────────────────────────────
 
 function generateProdNginx(apps, widgets) {
-  const all = [...apps, ...widgets]
+  const all = [...apps, ...widgets, ...CORE_SERVICES]
 
   // Routes whose path === manifest.route are Vite dev-server routes; replace with static serving.
   // All other routes (API proxies, minio, etc.) stay as reverse proxies.
@@ -230,7 +253,7 @@ function prodServerBlock(m) {
 }
 
 function generateProdCompose(apps, widgets) {
-  const all = [...apps, ...widgets]
+  const all = [...apps, ...widgets, ...CORE_SERVICES]
   const withServers = all.filter(m => m.server)
 
   const needsMongo = withServers.some(m => (m.server.depends ?? []).includes('mongo'))

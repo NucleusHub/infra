@@ -23,8 +23,6 @@ services:
     depends_on:
       registry:
         condition: service_started
-      auth-server:
-        condition: service_healthy
       goal-calendar-server:
         condition: service_healthy
       orbit-server:
@@ -36,6 +34,8 @@ services:
       spotify-server:
         condition: service_healthy
       sysinfo-server:
+        condition: service_healthy
+      auth-server:
         condition: service_healthy
 
   registry:
@@ -49,25 +49,6 @@ services:
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
-
-  auth-server:
-    build:
-      context: ../core/auth-server
-    restart: unless-stopped
-    command: ["node", "index.js"]
-    environment:
-      PORT: 3005
-      MONGODB_URI: mongodb://mongo:27017/nucleus
-      JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
-    depends_on:
-      mongo:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3005/api/auth/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
 
   goal-calendar-server:
     build:
@@ -182,6 +163,25 @@ services:
       PORT: 3010
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/api/sysinfo/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  auth-server:
+    build:
+      context: ../core/auth-server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3005
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3005/api/auth/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 10
