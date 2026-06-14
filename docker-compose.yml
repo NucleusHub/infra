@@ -27,6 +27,9 @@ services:
       - ../hub/vite.config.js:/app/vite.config.js
       - ../widgets:/app/widgets:ro
       - ../core:/app/core:ro
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
 
   registry:
     build:
