@@ -161,6 +161,11 @@ const composeServer = withServer ? `  ${serviceServer}:
     build:
       context: ./server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "${id}"
     environment:
       MONGODB_URI: mongodb://mongo:27017/nucleus
       JWT_SECRET: \${JWT_SECRET:-nucleus-jwt-secret}
@@ -184,6 +189,11 @@ ${composeServer}  ${serviceClient}:
     build:
       context: ./client
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-client"
+      nucleus.app: "${id}"
     environment:
       API_TARGET: http://${serviceServer}:${serverPort ?? ''}
     volumes:

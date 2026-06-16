@@ -1,6 +1,13 @@
 import express from 'express'
-import { readFileSync, readdirSync } from 'fs'
+import { readFileSync, readdirSync, existsSync } from 'fs'
 import { join } from 'path'
+
+// A directory containing a `nucleus.ignore` marker is never discovered — keeps
+// the Anchor control plane (apps/anchor) out of the ecosystem despite its
+// placement under apps/. Mirrors the same guard in infra/generate.js.
+function isIgnored(dir) {
+  return existsSync(join(dir, 'nucleus.ignore'))
+}
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -10,7 +17,7 @@ const WIDGETS_DIR = process.env.WIDGETS_DIR || '/widgets'
 function readManifests(baseDir, filename) {
   try {
     return readdirSync(baseDir, { withFileTypes: true })
-      .filter(e => e.isDirectory())
+      .filter(e => e.isDirectory() && !isIgnored(join(baseDir, e.name)))
       .flatMap(dir => {
         const manifestPath = join(baseDir, dir.name, filename)
         try {

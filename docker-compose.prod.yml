@@ -6,6 +6,10 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "proxy"
     ports:
       - "80:80"
       - "443:443"
@@ -45,6 +49,10 @@ services:
     build:
       context: ./registry
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "registry"
     environment:
       PORT: 4000
       APPS_DIR: /apps
@@ -57,6 +65,11 @@ services:
     build:
       context: ../apps/echo/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "echo"
     command: ["node", "index.js"]
     environment:
       PORT: 3006
@@ -80,6 +93,11 @@ services:
     build:
       context: ../apps/goal-calendar/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "goal-calendar"
     command: ["node", "index.js"]
     environment:
       PORT: 3001
@@ -99,6 +117,11 @@ services:
     build:
       context: ../apps/orbit/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "orbit"
     command: ["node", "index.js"]
     environment:
       PORT: 3003
@@ -126,6 +149,11 @@ services:
     build:
       context: ../apps/pulse/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "pulse"
     command: ["node", "index.js"]
     environment:
       PORT: 3004
@@ -145,6 +173,11 @@ services:
     build:
       context: ../apps/watchlist/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "watchlist"
     command: ["node", "index.js"]
     environment:
       PORT: 3000
@@ -166,6 +199,11 @@ services:
     build:
       context: ../widgets/spotify/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "widget-server"
+      nucleus.app: "spotify"
     command: ["node", "index.js"]
     environment:
       PORT: 3002
@@ -184,6 +222,11 @@ services:
     build:
       context: ../widgets/sysinfo/server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "widget-server"
+      nucleus.app: "sysinfo"
     command: ["node", "index.js"]
     environment:
       PORT: 3010
@@ -198,6 +241,10 @@ services:
     build:
       context: ../core/auth-server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "auth"
     command: ["node", "index.js"]
     environment:
       PORT: 3005
@@ -216,6 +263,10 @@ services:
   mongo:
     image: ${MONGO_IMAGE:-mongo:7}
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "database"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -228,6 +279,10 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "cache"
     command: ["redis-server", "--appendonly", "no", "--save", ""]
     volumes:
       - redis_data:/data
@@ -242,6 +297,10 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "object-store"
     ports:
       - "9000:9000"
       - "9001:9001"

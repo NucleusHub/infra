@@ -85,6 +85,9 @@ ln -sfn "$REPO/widgets" "$REPO/hub/widgets"
 lib_apps=()
 for app_dir in "$REPO/apps"/*/; do
   app_id="$(basename "$app_dir")"
+  # Dirs carrying a nucleus.ignore marker (e.g. apps/anchor) are not part of the
+  # ecosystem — never symlink them into the hub. Mirrors infra/generate.js.
+  [[ -f "${app_dir}nucleus.ignore" ]] && continue
   client_dir="$app_dir/client"
   if [[ -d "$client_dir" && ! -f "$client_dir/vite.config.js" ]]; then
     ln -sfn "$client_dir" "$REPO/hub/$app_id"
@@ -100,6 +103,8 @@ build_unit hub "$REPO/hub" "$hub_fp"
 while IFS= read -r -d '' cfg; do
   client_dir="$(dirname "$cfg")"
   app_name="$(basename "$(dirname "$client_dir")")"
+  # Skip ignored apps (e.g. apps/anchor) — they build & deploy independently.
+  [[ -f "$REPO/apps/$app_name/nucleus.ignore" ]] && continue
   ln -sfn "$REPO/core" "$client_dir/core"
   if [[ "$app_name" == echo ]]; then
     ln -sfn "$REPO/apps" "$client_dir/apps"

@@ -16,6 +16,7 @@ const WIDGETS_DIR = join(ROOT, 'widgets')
 const CORE_SERVICES = [
   {
     _dir: join(ROOT, 'core', 'auth-server'),
+    _role: 'auth',
     nginx: { routes: [{ path: '/api/auth', upstream: 'auth-server:3005' }] },
     server: {
       service: 'auth-server',
@@ -31,10 +32,18 @@ const CORE_SERVICES = [
   },
 ]
 
+// A directory containing a `nucleus.ignore` marker is excluded from ALL
+// discovery — registry listing, nginx/compose generation, and hub-library
+// symlinking. This is what keeps apps/anchor (the infra control plane) out of
+// the ecosystem despite living under apps/. Any future scanner should reuse it.
+function isIgnored(dir) {
+  return existsSync(join(dir, 'nucleus.ignore'))
+}
+
 function readManifests(baseDir, filename) {
   if (!existsSync(baseDir)) return []
   return readdirSync(baseDir, { withFileTypes: true })
-    .filter(e => e.isDirectory())
+    .filter(e => e.isDirectory() && !isIgnored(join(baseDir, e.name)))
     .flatMap(dir => {
       const path = join(baseDir, dir.name, filename)
       if (!existsSync(path)) return []
@@ -215,6 +224,19 @@ ${spaBlocks.join('\n')}
 
 // ── Prod Compose ───────────────────────────────────────────────────────────
 
+// Docker labels are the contract Anchor (the infra control plane) uses to
+// discover and classify Nucleus containers — it never relies on names. Every
+// managed container carries nucleus.managed/stack/role, plus nucleus.app for
+// app- and widget-scoped services. Indented for inline use in a compose block.
+function labelsBlock(role, app = null) {
+  let out = `    labels:\n`
+  out += `      nucleus.managed: "true"\n`
+  out += `      nucleus.stack: "nucleus"\n`
+  out += `      nucleus.role: "${role}"\n`
+  if (app) out += `      nucleus.app: "${app}"\n`
+  return out
+}
+
 function prodServerBlock(m) {
   const s = m.server
   const relDir = '../' + m._dir.slice(ROOT.length + 1).replace(/\\/g, '/')
@@ -238,6 +260,7 @@ function prodServerBlock(m) {
   let out = `  ${s.service}:\n`
   out += `    build:\n      context: ${buildContext}\n`
   out += `    restart: unless-stopped\n`
+  out += labelsBlock(m._role ?? 'app-server', m.id ?? null)
   out += `    command: ["node", "index.js"]\n`
   out += `    environment:\n${envLines}\n`
   if (volumeLines) out += `    volumes:\n${volumeLines}\n`
@@ -253,6 +276,9 @@ function prodServerBlock(m) {
 }
 
 function generateProdCompose(apps, widgets) {
+  // Widget backends are role=widget-server; apps default to app-server in
+  // prodServerBlock. Core services carry their own _role (e.g. auth).
+  widgets.forEach(m => { m._role = 'widget-server' })
   const all = [...apps, ...widgets, ...CORE_SERVICES]
   const withServers = all.filter(m => m.server)
 
@@ -297,7 +323,7 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    ports:
+${labelsBlock('proxy')}    ports:
       - "80:80"
       - "443:443"
     volumes:
@@ -312,7 +338,7 @@ ${nginxDependsLines}
     build:
       context: ./registry
     restart: unless-stopped
-    environment:
+${labelsBlock('registry')}    environment:
       PORT: 4000
       APPS_DIR: /apps
       WIDGETS_DIR: /widgets
@@ -327,7 +353,7 @@ ${serverBlocks}
     out += `  mongo:
     image: \${MONGO_IMAGE:-mongo:7}
     restart: unless-stopped
-    volumes:
+${labelsBlock('database')}    volumes:
       - mongo_data:/data/db
     healthcheck:
       test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand({ping:1})' --quiet 2>/dev/null || mongo --eval 'db.adminCommand({ping:1})' --quiet"]
@@ -343,7 +369,7 @@ ${serverBlocks}
     out += `  redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "no", "--save", ""]
+${labelsBlock('cache')}    command: ["redis-server", "--appendonly", "no", "--save", ""]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -361,7 +387,7 @@ ${serverBlocks}
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
-    ports:
+${labelsBlock('object-store')}    ports:
       - "9000:9000"
       - "9001:9001"
     environment:
@@ -399,6 +425,7 @@ function findHubLibraries() {
     .filter(e => {
       const clientDir = join(APPS_DIR, e.name, 'client')
       return e.isDirectory()
+        && !isIgnored(join(APPS_DIR, e.name))
         && existsSync(clientDir)
         && !existsSync(join(clientDir, 'vite.config.js'))
     })

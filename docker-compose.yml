@@ -4,6 +4,10 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "proxy"
     ports:
       - "80:80"
       - "443:443"
@@ -20,6 +24,10 @@ services:
     build:
       context: ../hub
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "hub"
     volumes:
       - ../hub/src:/app/src
       - ../hub/public:/app/public
@@ -35,6 +43,10 @@ services:
     build:
       context: ./registry
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "registry"
     environment:
       PORT: 4000
       APPS_DIR: /apps
@@ -49,6 +61,10 @@ services:
     build:
       context: ../core/auth-server
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "auth"
     environment:
       MONGODB_URI: mongodb://mongo:27017/nucleus
       PORT: 3005
@@ -69,6 +85,10 @@ services:
   mongo:
     image: ${MONGO_IMAGE:-mongo:4.4}
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "database"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -83,6 +103,10 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "cache"
     command: ["redis-server", "--appendonly", "no", "--save", ""]
     volumes:
       - redis_data:/data
@@ -97,6 +121,10 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "object-store"
     ports:
       - "9000:9000"
       - "9001:9001"
