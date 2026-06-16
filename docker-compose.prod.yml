@@ -171,8 +171,8 @@ services:
       PORT: 3002
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
-      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-http://nucleus.home/api/spotify/callback}
-      SPOTIFY_SUCCESS_REDIRECT: ${SPOTIFY_SUCCESS_REDIRECT:-http://nucleus.home/spotify}
+      SPOTIFY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI:-https://nucleus.olm-altair.ts.net/api/spotify/callback}
+      SPOTIFY_SUCCESS_REDIRECT: ${SPOTIFY_SUCCESS_REDIRECT:-https://nucleus.olm-altair.ts.net/spotify}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/api/spotify/status',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s

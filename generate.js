@@ -91,14 +91,14 @@ function generateNginx(apps, widgets) {
 
   const blocks = routes.map(r => nginxLocation(r.path, r.upstream, r))
 
-  return `# Redirect nucleus.home HTTP traffic to HTTPS (external access with TLS cert)
+  return `# Redirect nucleus.olm-altair.ts.net HTTP traffic to HTTPS (external access with TLS cert)
 server {
     listen 80;
-    server_name nucleus.home;
-    return 301 https://nucleus.home$request_uri;
+    server_name nucleus.olm-altair.ts.net;
+    return 301 https://nucleus.olm-altair.ts.net$request_uri;
 }
 
-# Main server — HTTPS for nucleus.home, plain HTTP for localhost / IP access
+# Main server — HTTPS for nucleus.olm-altair.ts.net, plain HTTP for localhost / IP access
 server {
     listen 80 default_server;
     listen 443 ssl;
@@ -168,14 +168,14 @@ function generateProdNginx(apps, widgets) {
     }`
   })
 
-  return `# Redirect nucleus.home HTTP traffic to HTTPS (external access with TLS cert)
+  return `# Redirect nucleus.olm-altair.ts.net HTTP traffic to HTTPS (external access with TLS cert)
 server {
     listen 80;
-    server_name nucleus.home;
-    return 301 https://nucleus.home$request_uri;
+    server_name nucleus.olm-altair.ts.net;
+    return 301 https://nucleus.olm-altair.ts.net$request_uri;
 }
 
-# Main server — HTTPS for nucleus.home, plain HTTP for localhost / IP access
+# Main server — HTTPS for nucleus.olm-altair.ts.net, plain HTTP for localhost / IP access
 server {
     listen 80 default_server;
     listen 443 ssl;
