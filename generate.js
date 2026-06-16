@@ -258,6 +258,7 @@ function generateProdCompose(apps, widgets) {
 
   const needsMongo = withServers.some(m => (m.server.depends ?? []).includes('mongo'))
   const needsMinio = withServers.some(m => (m.server.depends ?? []).includes('minio'))
+  const needsRedis = withServers.some(m => (m.server.depends ?? []).includes('redis'))
 
   // Nginx gets read-only mounts for each standalone app's pre-built dist
   const standaloneApps = all.filter(m => m.route)
@@ -281,6 +282,7 @@ function generateProdCompose(apps, widgets) {
   const namedVols = new Set()
   if (needsMongo) namedVols.add('mongo_data')
   if (needsMinio) namedVols.add('minio_data')
+  if (needsRedis) namedVols.add('redis_data')
   withServers.forEach(m => {
     ;(m.server.namedVolumes ?? []).forEach(v => namedVols.add(v.split(':')[0]))
   })
@@ -333,6 +335,23 @@ ${serverBlocks}
       timeout: 5s
       retries: 10
       start_period: 10s
+
+`
+  }
+
+  if (needsRedis) {
+    out += `  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 `
   }

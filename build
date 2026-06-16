@@ -44,6 +44,9 @@ while IFS= read -r -d '' cfg; do
   app_name="$(basename "$(dirname "$client_dir")")"
   step "Building $app_name client"
   ln -sfn "$REPO/core" "$client_dir/core"
+  # Echo's client auto-discovers app integrations via a ../apps glob
+  # (apps/<app>/echo/integration.echo.js); link the apps root so the build resolves them.
+  [[ "$app_name" == echo ]] && ln -sfn "$REPO/apps" "$client_dir/apps"
   cd "$client_dir"
   npm_install
   npm run build

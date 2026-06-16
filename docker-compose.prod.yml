@@ -13,6 +13,7 @@ services:
       - ../hub/dist:/srv/hub:ro
       - ../hub/public:/srv/static:ro
       - ../apps/admin/client/dist:/srv/admin:ro
+      - ../apps/echo/client/dist:/srv/echo:ro
       - ../apps/goal-calendar/client/dist:/srv/goals:ro
       - ../apps/orbit/client/dist:/srv/orbit:ro
       - ../apps/watchlist/client/dist:/srv/watchlist:ro
@@ -23,6 +24,8 @@ services:
     depends_on:
       registry:
         condition: service_started
+      echo-server:
+        condition: service_healthy
       goal-calendar-server:
         condition: service_healthy
       orbit-server:
@@ -49,6 +52,29 @@ services:
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+
+  echo-server:
+    build:
+      context: ../apps/echo/server
+    restart: unless-stopped
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3006
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      REDIS_URL: redis://redis:6379
+      APPS_DIR: /apps
+      JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3006/api/echo/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   goal-calendar-server:
     build:
@@ -199,6 +225,19 @@ services:
       retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -222,4 +261,5 @@ services:
 volumes:
   mongo_data:
   minio_data:
+  redis_data:
   uploads_data:

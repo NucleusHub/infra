@@ -78,6 +78,21 @@ services:
       retries: 10
       start_period: 10s
 
+  # Shared realtime backplane — Echo uses it for pub/sub fan-out, presence,
+  # typing indicators and unread counters. Other apps may use it too.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -101,4 +116,5 @@ services:
 volumes:
   mongo_data:
   minio_data:
+  redis_data:
   auth_server_modules:
