@@ -428,6 +428,61 @@ function generateOverride(apps, widgets, hubLibs) {
   return parts.join('\n\n') + '\n'
 }
 
+// ── Validation ───────────────────────────────────────────────────────────────
+
+// Backing services generate.js can auto-provision (see generateProdCompose).
+// Anything an app/widget `depends` on must be one of these or another declared
+// server, otherwise compose would reference a service that's never generated.
+const PROVISIONED_SERVICES = ['mongo', 'redis', 'minio']
+
+// Fail the build loudly on the few manifest mistakes that would otherwise emit a
+// broken nginx config or an invalid compose file — duplicate location blocks,
+// duplicate service keys, or a depends_on pointing at a service that never gets
+// generated. A clear error here beats a cryptic `docker compose up` failure and
+// keeps "drop a new app in and rebuild" honest.
+function validate(apps, widgets) {
+  const all = [...apps, ...widgets, ...CORE_SERVICES]
+  const errors = []
+  const warnings = []
+  const label = m => m.id ?? m.server?.service ?? m._dir
+
+  // Duplicate nginx paths → duplicate location {} blocks (nginx won't load).
+  const pathOwners = {}
+  for (const m of all)
+    for (const r of (m.nginx?.routes ?? []))
+      (pathOwners[r.path] ??= []).push(label(m))
+  for (const [path, owners] of Object.entries(pathOwners))
+    if (owners.length > 1) errors.push(`duplicate nginx route "${path}" claimed by: ${owners.join(', ')}`)
+
+  // Duplicate service names → duplicate compose service keys (invalid compose).
+  const svcOwners = {}
+  for (const m of all)
+    if (m.server?.service) (svcOwners[m.server.service] ??= []).push(label(m))
+  for (const [svc, owners] of Object.entries(svcOwners))
+    if (owners.length > 1) errors.push(`duplicate server service "${svc}" declared by: ${owners.join(', ')}`)
+
+  // depends_on must resolve to a provisioned service or another declared one.
+  const known = new Set([...PROVISIONED_SERVICES, ...Object.keys(svcOwners)])
+  for (const m of all)
+    for (const dep of (m.server?.depends ?? []))
+      if (!known.has(dep))
+        errors.push(`${label(m)} depends on unknown service "${dep}" — not another app's server and not auto-provisioned (${PROVISIONED_SERVICES.join('/')})`)
+
+  // An app with a route but no matching location won't be served as an SPA in prod.
+  for (const m of [...apps, ...widgets]) {
+    if (!m.route) continue
+    if (!(m.nginx?.routes ?? []).some(r => r.path === m.route))
+      warnings.push(`${label(m)} sets route "${m.route}" but no nginx route has that path — it won't be served as an SPA in prod`)
+  }
+
+  warnings.forEach(w => console.warn(`  ⚠ ${w}`))
+  if (errors.length) {
+    console.error('\n✖ Manifest validation failed — fix these and rebuild:')
+    errors.forEach(e => console.error(`  - ${e}`))
+    process.exit(1)
+  }
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 // Core services own their service name and routes. Drop any discovered
@@ -450,6 +505,8 @@ const hubLibs = findHubLibraries()
 console.log(`Apps:    ${apps.length ? apps.map(a => a.id).join(', ') : 'none'}`)
 console.log(`Widgets: ${widgets.length ? widgets.map(w => w.id).join(', ') : 'none'}`)
 console.log(`Hub libs: ${hubLibs.length ? hubLibs.map(l => l.id).join(', ') : 'none'}`)
+
+validate(apps, widgets)
 
 writeFileSync(join(INFRA, 'nginx', 'nginx.conf'), generateNginx(apps, widgets))
 console.log('→ nginx/nginx.conf')
