@@ -23,7 +23,9 @@ else
   echo "MONGO_IMAGE=$MONGO_IMAGE" >> .env
 fi
 
-node generate.js
+# Regenerate nginx + compose configs via the Go infra tool (compiled on demand).
+BIN="$(./ensure-tool)"
+"$BIN" generate
 docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T nginx nginx -s reload 2>/dev/null || true
 docker compose \
   -f docker-compose.yml \

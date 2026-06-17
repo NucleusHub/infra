@@ -1,0 +1,104 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// devComposeArgs is the dev stack's compose file pair: the base dev services
+// plus the generated override (app/widget includes + hub library mounts).
+var devComposeArgs = []string{"-f", "docker-compose.yml", "-f", "docker-compose.override.yml"}
+
+// runDev brings the dev stack up, but only if it isn't already running — the
+// "if not already present" guard. It mirrors the infra/nucleus wrapper's
+// pre-flight: pick the right MongoDB image for the CPU, persist it so a plain
+// `docker compose up` agrees, and regenerate nginx/compose from manifests.
+func runDev(p paths) error {
+	if err := loadEnv(filepath.Join(p.infra, ".env")); err != nil {
+		return err
+	}
+
+	// MongoDB 5+ requires AVX; fall back to 4.4 on older CPUs.
+	img := "mongo:4.4"
+	if hasAVX() {
+		img = "mongo:7"
+	} else {
+		fmt.Println("[nucleus] No AVX detected — using mongo:4.4")
+	}
+	os.Setenv("MONGO_IMAGE", img)
+	if err := persistEnvVar(filepath.Join(p.infra, ".env"), "MONGO_IMAGE", img); err != nil {
+		return err
+	}
+
+	// Regenerate configs so the override (and nginx) reflect current manifests.
+	if err := runGenerate(p); err != nil {
+		return err
+	}
+
+	running, err := devRunning(p)
+	if err != nil {
+		return err
+	}
+	if running {
+		fmt.Printf("\n%s%s✓ Dev stack already running.%s Use 'infra/nucleus down' to stop it.\n", cBold, cGreen, cReset)
+		return nil
+	}
+
+	step("Starting dev stack")
+	up := exec.Command("docker", append(append([]string{"compose"}, devComposeArgs...), "up", "-d")...)
+	up.Dir = p.infra
+	up.Stdout, up.Stderr, up.Stdin = os.Stdout, os.Stderr, os.Stdin
+	if err := up.Run(); err != nil {
+		return fmt.Errorf("docker compose up failed: %w", err)
+	}
+
+	// Dev is accessed locally; external/tailnet access still works via the
+	// NUCLEUS_HOST server_name, but the canonical dev link is localhost.
+	fmt.Printf("\n%s%s✓ Dev stack is up.%s\n", cBold, cGreen, cReset)
+	fmt.Println("  Hub → http://localhost/")
+	return nil
+}
+
+// devRunning reports whether any of the dev stack's containers are currently
+// running (compose scopes `ps` to this project's two compose files).
+func devRunning(p paths) (bool, error) {
+	args := append(append([]string{"compose"}, devComposeArgs...), "ps", "--status", "running", "--quiet")
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = p.infra
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("docker compose ps failed: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// persistEnvVar sets key=val in a KEY=VALUE file, replacing an existing line or
+// appending one, leaving every other line untouched (like the wrapper's sed).
+func persistEnvVar(path, key, val string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.WriteFile(path, []byte(key+"="+val+"\n"), 0o644)
+		}
+		return err
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return os.WriteFile(path, []byte(key+"="+val+"\n"), 0o644)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	found := false
+	for i := range lines {
+		if strings.HasPrefix(lines[i], key+"=") {
+			lines[i] = key + "=" + val
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, key+"="+val)
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}

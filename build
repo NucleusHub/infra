@@ -1,162 +1,23 @@
 #!/usr/bin/env bash
 # Builds all Vue frontends for production and starts the stack via Docker Compose.
-# vueDevTools() is excluded automatically (mode=production); Vite never bundles HMR.
-# Run from any directory — paths are resolved relative to this script.
 #
-# Incremental: each unit (hub, every app client, widgets) is only re-installed /
-# re-built when something it depends on actually changed. A content fingerprint of
-# the relevant sources is cached under infra/.build-cache; npm install is skipped
-# unless the lockfile changed. Pass --force (or FORCE_REBUILD=1) to rebuild all.
+# This is a thin shim around the `nucleus` infra tool (infra/tool, written in Go).
+# It compiles the tool on demand (in a golang:1.23-alpine container — no host Go
+# needed) and hands off to `nucleus build`, which does the real work:
+#
+#   • incremental, parallel frontend builds (hub, every app client, widgets) with
+#     a content-fingerprint cache under infra/.build-cache; npm/pnpm install is
+#     skipped unless the lockfile changed
+#   • regenerates nginx + docker-compose configs from the app/widget manifests
+#   • brings the production stack up with `docker compose ... up -d --build`
+#
+# Flags: --force / -f  rebuild every unit;  -j N  max parallel build units.
+# Run from any directory — paths are resolved relative to this script.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── Colour helpers ────────────────────────────────────────────────────────────
-bold="\033[1m"; green="\033[32m"; yellow="\033[33m"; dim="\033[2m"; reset="\033[0m"
-step() { echo -e "\n${bold}${green}▶ $*${reset}"; }
-warn() { echo -e "${yellow}⚠  $*${reset}"; }
-skip() { echo -e "  ${dim}↳ $*${reset}"; }
+BIN="$("$INFRA/ensure-tool")"
 
-# ── Flags ──────────────────────────────────────────────────────────────────────
-FORCE=0
-for a in "$@"; do case "$a" in --force|-f) FORCE=1 ;; esac; done
-[[ "${FORCE_REBUILD:-0}" == 1 ]] && FORCE=1
-[[ "$FORCE" == 1 ]] && warn "Force rebuild — ignoring build cache"
-
-# ── Load .env (provides VITE_* vars baked into frontend builds) ───────────────
-if [[ -f "$REPO/infra/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$REPO/infra/.env"
-  set +a
-fi
-
-# ── npm install helper — prefers ci (clean/reproducible), falls back to install ──
-npm_install() { npm ci --prefer-offline 2>/dev/null || npm install; }
-
-# ── Change-detection cache ──────────────────────────────────────────────────────
-CACHE_DIR="$REPO/infra/.build-cache"
-mkdir -p "$CACHE_DIR"
-
-# Content fingerprint of one or more source roots. Excludes deps/outputs/vcs and
-# never follows symlinks (so the core/widgets/app symlinks we create are ignored —
-# their real dirs are passed explicitly where they matter).
-src_hash() {
-  { for r in "$@"; do
-      [[ -e "$r" ]] || continue
-      find "$r" -type f \
-        -not -path '*/node_modules/*' -not -path '*/dist/*' \
-        -not -path '*/.git/*' -not -name '*.log' -print0
-    done; } | sort -z | xargs -0 -r sha1sum 2>/dev/null | sha1sum | cut -d' ' -f1
-}
-
-# Build a Vite unit only when its fingerprint changed or its dist is missing.
-# npm install runs only when node_modules is absent or the lockfile changed.
-#   $1 = cache key   $2 = client dir   $3 = source fingerprint
-build_unit() {
-  local name="$1" dir="$2" fp="$3"
-  local bcache="$CACHE_DIR/$name.build" dcache="$CACHE_DIR/$name.deps"
-
-  if [[ "$FORCE" == 0 && -d "$dir/dist" && -f "$bcache" && "$(cat "$bcache")" == "$fp" ]]; then
-    skip "$name unchanged — skipping build"
-    return 0
-  fi
-
-  step "Building $name"
-  cd "$dir"
-  local lock="package-lock.json"; [[ -f "$lock" ]] || lock="package.json"
-  local lh; lh="$(sha1sum "$lock" | cut -d' ' -f1)"
-  if [[ "$FORCE" == 0 && -d node_modules && -f "$dcache" && "$(cat "$dcache")" == "$lh" ]]; then
-    skip "deps unchanged — skipping npm install"
-  else
-    npm_install
-    echo "$lh" > "$dcache"
-  fi
-
-  npm run build
-  echo "$fp" > "$bcache"   # only reached on success (set -e); a failed build won't cache
-}
-
-# ── 1. Build the hub ────────────────────────────────────────────────────────────
-# Hub bundles widget + library-app sources directly, so its fingerprint covers
-# hub itself, core, widgets and every library app (client/ with no vite.config.js).
-ln -sfn "$REPO/core" "$REPO/hub/core"
-ln -sfn "$REPO/widgets" "$REPO/hub/widgets"
-lib_apps=()
-for app_dir in "$REPO/apps"/*/; do
-  app_id="$(basename "$app_dir")"
-  # Dirs carrying a nucleus.ignore marker (e.g. apps/anchor) are not part of the
-  # ecosystem — never symlink them into the hub. Mirrors infra/generate.js.
-  [[ -f "${app_dir}nucleus.ignore" ]] && continue
-  client_dir="$app_dir/client"
-  if [[ -d "$client_dir" && ! -f "$client_dir/vite.config.js" ]]; then
-    ln -sfn "$client_dir" "$REPO/hub/$app_id"
-    lib_apps+=("$client_dir")
-  fi
-done
-hub_fp="$(src_hash "$REPO/hub" "$REPO/core" "$REPO/widgets" "${lib_apps[@]}")"
-build_unit hub "$REPO/hub" "$hub_fp"
-
-# ── 2. Build standalone app clients (apps/*/client with a vite.config.js) ────────
-# Each depends on its own source + core. Echo additionally bundles every app's
-# echo integration (apps/*/echo) via an import.meta.glob.
-while IFS= read -r -d '' cfg; do
-  client_dir="$(dirname "$cfg")"
-  app_name="$(basename "$(dirname "$client_dir")")"
-  # Skip ignored apps (e.g. apps/anchor) — they build & deploy independently.
-  [[ -f "$REPO/apps/$app_name/nucleus.ignore" ]] && continue
-  ln -sfn "$REPO/core" "$client_dir/core"
-  if [[ "$app_name" == echo ]]; then
-    ln -sfn "$REPO/apps" "$client_dir/apps"
-    fp="$(src_hash "$client_dir" "$REPO/core" "$REPO/apps"/*/echo)"
-  else
-    fp="$(src_hash "$client_dir" "$REPO/core")"
-  fi
-  build_unit "app-$app_name" "$client_dir" "$fp"
-done < <(find "$REPO/apps" -maxdepth 3 -name "vite.config.js" -path "*/client/*" -print0 | sort -z)
-
-# ── 3. Build widgets (pnpm workspace; widgets carry their own widgets/core) ──────
-widgets_fp="$(src_hash "$REPO/widgets")"
-wbuild="$CACHE_DIR/widgets.build"; wdeps="$CACHE_DIR/widgets.deps"
-if [[ "$FORCE" == 0 && -f "$wbuild" && "$(cat "$wbuild")" == "$widgets_fp" ]] \
-   && compgen -G "$REPO/widgets/*/client/dist" >/dev/null; then
-  skip "widgets unchanged — skipping build"
-else
-  step "Building widgets"
-  cd "$REPO/widgets"
-  lh="$(sha1sum pnpm-lock.yaml | cut -d' ' -f1)"
-  if [[ "$FORCE" == 0 && -d node_modules && -f "$wdeps" && "$(cat "$wdeps")" == "$lh" ]]; then
-    skip "deps unchanged — skipping pnpm install"
-  else
-    pnpm install --frozen-lockfile
-    echo "$lh" > "$wdeps"
-  fi
-  pnpm run build
-  echo "$widgets_fp" > "$wbuild"
-fi
-
-# ── 4. Generate nginx and compose configs from manifests (cheap — always run) ────
-step "Generating infra configs"
-cd "$REPO/infra"
-node generate.js
-
-# ── 5. Deploy ─────────────────────────────────────────────────────────────────
-if grep -q ' avx ' /proc/cpuinfo 2>/dev/null; then
-  export MONGO_IMAGE=mongo:7
-  warn "AVX detected — using mongo:7"
-else
-  export MONGO_IMAGE=mongo:4.4
-  warn "No AVX — falling back to mongo:4.4"
-fi
-
-# Docker layer cache makes unchanged service images a near-no-op; only services
-# whose build context actually changed are rebuilt.
-step "Starting production stack"
-cd "$REPO/infra"
-docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-
-echo -e "\n${bold}${green}✓ Production stack is up.${reset}"
-echo "  Hub       → https://nucleus.olm-altair.ts.net/"
-echo "  Watchlist → https://nucleus.olm-altair.ts.net/watchlist/"
-echo "  Goals     → https://nucleus.olm-altair.ts.net/goals/"
-echo "  Orbit     → https://nucleus.olm-altair.ts.net/orbit/"
+cd "$INFRA"
+exec "$BIN" build "$@"

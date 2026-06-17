@@ -24,3 +24,6 @@ logs/
 
 # Incremental build fingerprints
 .build-cache/
+
+# Compiled Go infra tool (built on demand by ensure-tool)
+tool/nucleus

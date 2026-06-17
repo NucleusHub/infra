@@ -38,6 +38,8 @@ services:
     environment:
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
+      # Vite dev server's allowedHosts reads this (see hub/vite.config.js).
+      NUCLEUS_HOST: ${NUCLEUS_HOST:-nucleus.olm-altair.ts.net}
 
   registry:
     build:

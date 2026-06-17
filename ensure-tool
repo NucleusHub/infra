@@ -1,0 +1,37 @@
+#!/bin/sh
+# Ensure the compiled `nucleus` infra tool (infra/tool) is up to date.
+#
+# The tool is compiled inside a golang:1.23-alpine container — exactly like
+# apps/anchor — so no host Go toolchain is required. The binary is a static
+# CGO-free build that runs directly on the host and shells out to npm / pnpm /
+# docker during `nucleus build`.
+#
+# Recompilation happens only when the Go sources change (cheap, ~seconds).
+# Prints the path to the binary on stdout; all progress goes to stderr so callers
+# can capture the path with: BIN="$(infra/ensure-tool)"
+set -e
+
+INFRA="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(dirname "$INFRA")"
+TOOL_DIR="$INFRA/tool"
+BIN="$TOOL_DIR/nucleus"
+CACHE_DIR="$INFRA/.build-cache"
+mkdir -p "$CACHE_DIR"
+HASH_FILE="$CACHE_DIR/tool.hash"
+
+# Hash the build inputs (test files are excluded — `go build` ignores them).
+tool_hash="$(
+  { for f in "$TOOL_DIR"/*.go; do case "$f" in *_test.go) ;; *) cat "$f" ;; esac; done
+    cat "$TOOL_DIR/go.mod" "$TOOL_DIR/fallback.html"
+  } 2>/dev/null | sha1sum | cut -d' ' -f1
+)"
+
+if [ ! -x "$BIN" ] || [ "$(cat "$HASH_FILE" 2>/dev/null)" != "$tool_hash" ]; then
+  echo "▶ Compiling nucleus infra tool (golang:1.23-alpine)…" >&2
+  docker run --rm -v "$REPO":/src -w /src/infra/tool -e CGO_ENABLED=0 \
+    golang:1.23-alpine \
+    go build -trimpath -ldflags "-s -w" -o nucleus . >&2
+  echo "$tool_hash" > "$HASH_FILE"
+fi
+
+printf '%s\n' "$BIN"

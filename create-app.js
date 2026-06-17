@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Scaffolds a new Nucleus app under apps/<id>/ that is plug-and-play out of the
-// box: a manifest the registry + generate.js auto-discover, a Vite client wired
+// box: a manifest the registry + infra tool auto-discover, a Vite client wired
 // to the shared @core components (BackgroundBlobs shader, AuthGuard, AppHeader,
 // liquid-glass), an optional Express server with auth + health, an optional Echo
 // integration, and its own git repo. Drop the result in, rebuild Docker, done.
@@ -121,7 +121,7 @@ ${withServer ? `- **Server** — Express + Mongo, port \`${serverPort}\`, API un
 The \`client/core\` symlink points at the monorepo's \`core/\` so \`@core/*\` resolves.
 `
 
-// Manifest — discovered by infra/generate.js and the registry service.
+// Manifest — discovered by the infra tool (infra/tool) and the registry service.
 const manifest = {
   id,
   name,
@@ -196,6 +196,7 @@ ${composeServer}  ${serviceClient}:
       nucleus.app: "${id}"
     environment:
       API_TARGET: http://${serviceServer}:${serverPort ?? ''}
+      NUCLEUS_HOST: \${NUCLEUS_HOST:-nucleus.olm-altair.ts.net}
     volumes:
       - ./client/src:/app/src
       - ./client/index.html:/app/index.html
@@ -268,7 +269,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: '0.0.0.0',
     port: ${clientPort},${proxyBlock}
-    allowedHosts: ['nucleus.olm-altair.ts.net'],
+    allowedHosts: [process.env.NUCLEUS_HOST || 'nucleus.olm-altair.ts.net'],
   },
 }))
 `
@@ -539,4 +540,4 @@ console.log(`\nNext:`)
 console.log(`  • Add a GitHub remote if you want it backed up:`)
 console.log(`      git -C apps/${id} remote add origin <url> && git -C apps/${id} push -u origin main`)
 console.log(`  • Rebuild the stack so it goes live:  infra/build`)
-console.log(`    (regenerates nginx + compose via generate.js, which now validates manifests)`)
+console.log(`    (regenerates nginx + compose via the infra tool, which validates manifests)`)
