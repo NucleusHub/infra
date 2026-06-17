@@ -58,10 +58,17 @@ function readManifests(baseDir, filename) {
 
 // ── Nginx ──────────────────────────────────────────────────────────────────
 
-function nginxLocation(path, upstream, { websocket = false, cors = false, maxBodySize = null } = {}) {
+function nginxLocation(path, upstream, { websocket = false, cors = false, maxBodySize = null, fallback = false } = {}) {
   const ws = websocket ? `
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";` : ''
+
+  // fallback: for human-facing SPA/client routes, serve the Anchor degraded-mode
+  // page when this upstream is unreachable (container stopped/crashed) instead of
+  // a raw 502. No proxy_intercept_errors — only nginx-generated 502/503/504 from
+  // an unreachable upstream trigger it; real upstream 5xx pass through.
+  const fbBlock = fallback ? `
+        error_page 502 503 504 = @anchor_fallback;` : ''
 
   // CORS: handle OPTIONS preflight then add Allow-Origin to all proxied responses.
   const corsBlock = cors ? `
@@ -84,7 +91,7 @@ function nginxLocation(path, upstream, { websocket = false, cors = false, maxBod
   // Use a variable so nginx resolves the upstream per-request (via Docker DNS)
   // rather than at startup — prevents boot failure when a service isn't up yet.
   return `
-    location ${path} {${corsBlock}${sizeBlock}
+    location ${path} {${corsBlock}${sizeBlock}${fbBlock}
         set $upstream ${upstream};
         proxy_pass http://$upstream;
         proxy_http_version 1.1;
@@ -93,12 +100,15 @@ function nginxLocation(path, upstream, { websocket = false, cors = false, maxBod
     }`
 }
 
-// Degraded-mode fallback. When the hub upstream is unreachable the catch-all
-// location serves this static page instead of a raw 502, pointing operators to
-// Anchor (the break-glass control plane) on port 8888 of the same host. Anchor
-// is NEVER part of automatic request routing — this is a manual link only.
-// (Single-quoted for the nginx string, so the markup below uses double quotes.)
-const ANCHOR_FALLBACK_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nucleus degraded</title><style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}h1{font-size:22px}p{color:#8b949e;max-width:32em;margin:0 auto}a{display:inline-block;margin-top:18px;padding:10px 20px;background:#58a6ff;color:#0d1117;border-radius:8px;text-decoration:none;font-weight:600}</style></head><body><div><h1>&#9875; Nucleus is degraded</h1><p>The Nucleus hub is not responding. Use Anchor to inspect the stack and recover it.</p><a id="a" href="#">Open Anchor &rarr;</a></div><script>document.getElementById("a").href=location.protocol+"//"+location.hostname+":8888";</script></body></html>'
+// Degraded-mode fallback. When an upstream is unreachable the location serves
+// this static page instead of a raw 502. It is styled to match Nucleus (liquid
+// glass, purple/blue, blobs, prefers-color-scheme dark/light) and names the
+// failing service from the request path, with a manual link to Anchor on :8888.
+// Anchor is NEVER part of automatic request routing — manual link only.
+// IMPORTANT: this is embedded in an nginx single-quoted return string, so it must
+// contain NO single quotes and NO "$" (nginx would treat $x as a variable). The
+// failing service name is derived client-side from location.pathname.
+const ANCHOR_FALLBACK_HTML = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nucleus — service unavailable</title><style>:root{--bg:#eef2f8;--text:#0f172a;--muted:#64748b;--surface:rgba(255,255,255,.62);--border:rgba(255,255,255,.72);--accent:#7c3aed;--accent2:#0ea5e9;--bv:#a78bfa;--bi:#818cf8;--bb:#60a5fa;--bo:.4}@media(prefers-color-scheme:dark){:root{--bg:#0d0d1a;--text:#f5f3ff;--muted:#a39bc4;--surface:rgba(45,28,78,.55);--border:rgba(160,120,255,.2);--accent:#a78bfa;--accent2:#60a5fa;--bv:#7c3aed;--bi:#4f46e5;--bb:#2563eb;--bo:.45}}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,system-ui,sans-serif}.blobs{position:fixed;inset:0;overflow:hidden;z-index:-1}.blob{position:absolute;border-radius:50%;filter:blur(100px);opacity:var(--bo)}.v{width:460px;height:460px;top:-120px;left:-110px;background:var(--bv)}.i{width:460px;height:460px;bottom:-140px;right:-120px;background:var(--bi)}.b{width:280px;height:280px;top:42%;left:46%;filter:blur(80px);background:var(--bb)}.card{max-width:440px;margin:16px;padding:36px;text-align:center;background:var(--surface);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);border:1px solid var(--border);border-radius:18px;box-shadow:0 8px 28px rgba(15,23,42,.18)}h1{font-size:22px;margin:0;background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}p{color:var(--muted);margin:14px 0 0;line-height:1.55}.svc{color:var(--text);font-weight:600}a.btn{display:inline-block;margin-top:24px;padding:11px 22px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-radius:10px;text-decoration:none;font-weight:600}a.retry{display:block;margin-top:14px;color:var(--muted);font-size:13px}</style></head><body><div class=\"blobs\"><div class=\"blob v\"></div><div class=\"blob i\"></div><div class=\"blob b\"></div></div><div class=\"card\"><h1>&#9875; Service unavailable</h1><p>The <span class=\"svc\" id=\"s\">Nucleus</span> isn&rsquo;t responding. Use Anchor to inspect and recover the stack.</p><a class=\"btn\" id=\"a\" href=\"#\">Open Anchor &rarr;</a><a class=\"retry\" href=\"#\" onclick=\"location.reload();return false\">Retry</a></div><script>var seg=location.pathname.split(\"/\").filter(Boolean)[0];document.getElementById(\"s\").textContent=seg?(seg.replace(/-/g,\" \")+\" service\"):\"Nucleus hub\";document.getElementById(\"a\").href=location.protocol+\"//\"+location.hostname+\":8888\";</script></body></html>'
 
 const FALLBACK_LOCATION = `
     # Degraded-mode page (manual link to Anchor; never auto-routed).
@@ -109,7 +119,9 @@ const FALLBACK_LOCATION = `
 
 function generateNginx(apps, widgets) {
   const routes = [...apps, ...widgets, ...CORE_SERVICES]
-    .flatMap(m => m.nginx?.routes ?? [])
+    // Tag the app's main (SPA/client) route so it falls back to the Anchor
+    // degraded page when its dev server is down — API routes keep raw errors.
+    .flatMap(m => (m.nginx?.routes ?? []).map(r => ({ ...r, fallback: !!m.route && r.path === m.route })))
     .sort((a, b) => b.path.length - a.path.length) // longest path first for readability
 
   const blocks = routes.map(r => nginxLocation(r.path, r.upstream, r))
