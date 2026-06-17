@@ -112,7 +112,7 @@ Thumbs.db
 files['README.md'] = `# ${name}
 
 A Nucleus app. Auto-discovered via \`nucleus.app.json\` — drop this repo into
-\`apps/${id}/\`, run \`infra/build\`, and it appears in the hub and is served at
+\`apps/${id}/\`, run \`infra/production\`, and it appears in the hub and is served at
 \`${route}\`.
 
 - **Client** — Vite + Vue, dev port \`${clientPort}\`, uses shared \`@core\` components
@@ -513,7 +513,7 @@ for (const [rel, content] of Object.entries(files)) {
 }
 
 // Committed relative symlink so @core/* resolves on a fresh clone and host
-// builds, without waiting for infra/build to create it. From apps/<id>/client/
+// builds, without waiting for infra/production to create it. From apps/<id>/client/
 // the monorepo core/ is three levels up.
 symlinkSync('../../../core', join(appDir, 'client', 'core'))
 
@@ -539,5 +539,5 @@ console.log(`    git          ${withGit ? 'initialised (branch main, 1 commit)' 
 console.log(`\nNext:`)
 console.log(`  • Add a GitHub remote if you want it backed up:`)
 console.log(`      git -C apps/${id} remote add origin <url> && git -C apps/${id} push -u origin main`)
-console.log(`  • Rebuild the stack so it goes live:  infra/build`)
+console.log(`  • Rebuild the stack so it goes live:  infra/production`)
 console.log(`    (regenerates nginx + compose via the infra tool, which validates manifests)`)

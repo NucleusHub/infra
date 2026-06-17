@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Builds all Vue frontends for production and starts the stack via Docker Compose.
+# infra/production — build everything for production and deploy the prod stack.
+#
+# Usage: infra/production [--force] [-j N]
 #
 # This is a thin shim around the `nucleus` infra tool (infra/tool, written in Go).
 # It compiles the tool on demand (in a golang:1.23-alpine container — no host Go
