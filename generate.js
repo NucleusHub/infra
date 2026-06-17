@@ -248,12 +248,15 @@ ${FALLBACK_LOCATION}
 // discover and classify Nucleus containers — it never relies on names. Every
 // managed container carries nucleus.managed/stack/role, plus nucleus.app for
 // app- and widget-scoped services. Indented for inline use in a compose block.
-function labelsBlock(role, app = null) {
+function labelsBlock(role, app = null, depends = null) {
   let out = `    labels:\n`
   out += `      nucleus.managed: "true"\n`
   out += `      nucleus.stack: "nucleus"\n`
   out += `      nucleus.role: "${role}"\n`
   if (app) out += `      nucleus.app: "${app}"\n`
+  // Backing services this one depends on — lets Anchor name the apps that a
+  // shared-infra action (stop/recreate mongo, etc.) would disrupt.
+  if (depends && depends.length) out += `      nucleus.depends: "${depends.join(',')}"\n`
   return out
 }
 
@@ -280,7 +283,7 @@ function prodServerBlock(m) {
   let out = `  ${s.service}:\n`
   out += `    build:\n      context: ${buildContext}\n`
   out += `    restart: unless-stopped\n`
-  out += labelsBlock(m._role ?? 'app-server', m.id ?? null)
+  out += labelsBlock(m._role ?? 'app-server', m.id ?? null, s.depends)
   out += `    command: ["node", "index.js"]\n`
   out += `    environment:\n${envLines}\n`
   if (volumeLines) out += `    volumes:\n${volumeLines}\n`

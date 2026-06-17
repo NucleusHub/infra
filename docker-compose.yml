@@ -65,6 +65,7 @@ services:
       nucleus.managed: "true"
       nucleus.stack: "nucleus"
       nucleus.role: "auth"
+      nucleus.depends: "mongo"
     environment:
       MONGODB_URI: mongodb://mongo:27017/nucleus
       PORT: 3005
