@@ -70,6 +70,10 @@ type Server struct {
 	NamedVolumes   []string    `json:"namedVolumes"`
 	HealthEndpoint string      `json:"healthEndpoint"`
 	StartPeriod    string      `json:"startPeriod"`
+	// Raw bind-mount lines (e.g. "../apps:/apps:ro") emitted verbatim into the
+	// prod service's volumes. Unlike NamedVolumes these are NOT declared as
+	// top-level named volumes. Internal-only (set by coreServices, not JSON).
+	BindMounts []string `json:"-"`
 }
 
 type Manifest struct {
@@ -169,13 +173,22 @@ func coreServices(p paths) []*Manifest {
 				Port:           3005,
 				HealthEndpoint: "/api/auth/health",
 				Env: &OrderedMap{
-					Keys: []string{"MONGODB_URI", "JWT_SECRET"},
+					Keys: []string{"MONGODB_URI", "JWT_SECRET", "APPS_DIR", "CORE_LOCALES_DIR", "HUB_LOCALES_DIR"},
 					Vals: map[string]string{
-						"MONGODB_URI": "mongodb://mongo:27017/nucleus",
-						"JWT_SECRET":  "${JWT_SECRET:-nucleus-jwt-secret}",
+						"MONGODB_URI":      "mongodb://mongo:27017/nucleus",
+						"JWT_SECRET":       "${JWT_SECRET:-nucleus-jwt-secret}",
+						"APPS_DIR":         "/apps",
+						"CORE_LOCALES_DIR": "/core-locales",
+						"HUB_LOCALES_DIR":  "/hub-locales",
 					},
 				},
 				Depends: []string{"mongo"},
+				// The localization service reads shipped locale files off disk.
+				BindMounts: []string{
+					"../apps:/apps:ro",
+					"../core/locales:/core-locales:ro",
+					"../hub/locales:/hub-locales:ro",
+				},
 			},
 		},
 	}

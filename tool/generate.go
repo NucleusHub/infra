@@ -418,6 +418,9 @@ func prodServerBlock(p paths, m *Manifest) string {
 	for _, v := range s.NamedVolumes {
 		volumeLines = append(volumeLines, "      - "+v)
 	}
+	for _, v := range s.BindMounts {
+		volumeLines = append(volumeLines, "      - "+v)
+	}
 
 	var dependsLines []string
 	for _, d := range s.Depends {
