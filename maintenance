@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# infra/maintenance — flip the platform-wide maintenance banner on or off.
+#
+# Writes a static flag file that nginx serves at /maintenance.json. Every app
+# polls it (core/MaintenanceBanner.vue) and shows a non-dismissable warning bar
+# while it's active. Because nginx serves the file directly, the banner keeps
+# showing even while the app servers are being rebuilt.
+#
+# Usage:
+#   infra/maintenance on [PRESET] [ETA]     # raise the banner (see presets below)
+#   infra/maintenance on custom "message"   # raise with a fully custom message
+#   infra/maintenance off                   # clear it
+#   infra/maintenance status                # show current state
+#   infra/maintenance presets               # list message presets
+#
+#   PRESET  one of the named presets below (default: update)
+#   ETA     duration slotted into the message. A bare number is read as minutes
+#           ("10" → "~10 min"); anything else is used verbatim ("1 hour",
+#           "a few minutes"). Omit for the preset's default wording.
+#
+# Typical roll:
+#   infra/maintenance on update 5
+#   infra/production
+#   infra/maintenance off
+set -euo pipefail
+
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="$INFRA/../state"
+FLAG="$STATE_DIR/maintenance.json"
+
+# ── Message presets ───────────────────────────────────────────────────────────
+# Add or edit freely. %ETA% is replaced with the formatted duration.
+declare -A PRESETS=(
+  [update]="Nucleus is being updated to a new version — expect brief unresponsiveness for %ETA%. File uploads and any changes may not be saved right now."
+  [rebuild]="Containers are being rebuilt — Nucleus will be unavailable for %ETA%. Please hold off on uploads or saving changes until this clears."
+  [db]="Database maintenance in progress (%ETA%). Any changes you make may not be saved until this finishes."
+  [quick]="Quick restart in progress — back in %ETA%."
+)
+DEFAULT_PRESET="update"
+DEFAULT_ETA="a few minutes"
+
+# JSON-escape stdin (handles backslash, double-quote, tab, newline).
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//	/\\t}"
+  s="${s//$'\n'/\\n}"
+  printf '%s' "$s"
+}
+
+# Turn an ETA argument into human text. Bare integer → "~N min"; else verbatim.
+fmt_eta() {
+  local raw="$1"
+  if [ -z "$raw" ]; then printf '%s' "$DEFAULT_ETA"; return; fi
+  if [[ "$raw" =~ ^[0-9]+$ ]]; then printf '~%s min' "$raw"; return; fi
+  printf '%s' "$raw"
+}
+
+write_flag() {
+  local msg="$1" preset="$2" eta="$3"
+  mkdir -p "$STATE_DIR"
+  local since; since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '{"active":true,"level":"warning","preset":"%s","eta":"%s","message":"%s","since":"%s"}\n' \
+    "$(json_escape "$preset")" "$(json_escape "$eta")" "$(json_escape "$msg")" "$since" > "$FLAG"
+  echo "🟠 maintenance ON"
+  echo "   preset:  $preset"
+  echo "   message: $msg"
+  echo "   flag:    $FLAG"
+}
+
+cmd="${1:-status}"
+
+case "$cmd" in
+  on)
+    preset="${2:-$DEFAULT_PRESET}"
+
+    if [ "$preset" = "custom" ]; then
+      msg="${3:-}"
+      [ -n "$msg" ] || { echo "error: 'on custom' needs a message argument" >&2; exit 2; }
+      write_flag "$msg" "custom" ""
+      exit 0
+    fi
+
+    if [ -z "${PRESETS[$preset]+x}" ]; then
+      echo "error: unknown preset '$preset'" >&2
+      echo "known presets: ${!PRESETS[*]} (or 'custom')" >&2
+      exit 2
+    fi
+
+    eta_text="$(fmt_eta "${3:-}")"
+    msg="${PRESETS[$preset]//%ETA%/$eta_text}"
+    write_flag "$msg" "$preset" "$eta_text"
+    ;;
+  off)
+    rm -f "$FLAG"
+    echo "🟢 maintenance OFF (flag removed)"
+    ;;
+  status)
+    if [ -f "$FLAG" ]; then
+      echo "🟠 ACTIVE"
+      cat "$FLAG"
+    else
+      echo "🟢 inactive (no flag file)"
+    fi
+    ;;
+  presets|list)
+    echo "Message presets (default: $DEFAULT_PRESET). %ETA% is filled from the ETA arg."
+    echo
+    for name in "${!PRESETS[@]}"; do
+      printf '  %-9s %s\n' "$name" "${PRESETS[$name]}"
+    done
+    echo
+    echo "  custom    <your own message text, passed as the next argument>"
+    ;;
+  *)
+    echo "usage: infra/maintenance {on [PRESET] [ETA] | on custom \"msg\" | off | status | presets}" >&2
+    exit 2
+    ;;
+esac

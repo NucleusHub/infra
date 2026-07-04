@@ -16,10 +16,12 @@ services:
     volumes:
       - ../hub/dist:/srv/hub:ro
       - ../hub/public:/srv/static:ro
+      - ../state:/srv/state:ro
       - ../apps/admin/client/dist:/srv/admin:ro
       - ../apps/echo/client/dist:/srv/echo:ro
       - ../apps/goal-calendar/client/dist:/srv/goals:ro
       - ../apps/orbit/client/dist:/srv/orbit:ro
+      - ../apps/prism/client/dist:/srv/prism:ro
       - ../apps/watchlist/client/dist:/srv/watchlist:ro
       - ../widgets/spotify/client/dist:/srv/spotify:ro
       - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
@@ -33,6 +35,8 @@ services:
       goal-calendar-server:
         condition: service_healthy
       orbit-server:
+        condition: service_healthy
+      prism-server:
         condition: service_healthy
       pulse-server:
         condition: service_healthy
@@ -147,6 +151,35 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+
+  prism-server:
+    build:
+      context: ../apps/prism/server
+    restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "prism"
+      nucleus.depends: "mongo"
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3011
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+      PRISM_SOURCE_MODE: ${PRISM_SOURCE_MODE:-manual}
+      PRISM_SOURCES: ${PRISM_SOURCES:-/media}
+      PRISM_DATA_DIR: /data
+      PRISM_ORBIT_API: ${PRISM_ORBIT_API:-http://orbit-server:3003}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3011/api/prism/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   pulse-server:
     build:

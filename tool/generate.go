@@ -247,6 +247,15 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
+
+    # Maintenance flag — a static file written by infra/maintenance and served by
+    # nginx (not an app server), so it stays reachable while apps are rebuilt.
+    # Absent → 204, which the client treats as "not in maintenance".
+    location = /maintenance.json {
+        root /srv/state;
+        add_header Cache-Control "no-store" always;
+        try_files /maintenance.json =204;
+    }
 ` + strings.Join(blocks, "\n") + `
 
     location ~* ^(/watchlist)?/favicon\.ico$ {
@@ -331,6 +340,15 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Maintenance flag — a static file written by infra/maintenance and served by
+    # nginx (not an app server), so it stays reachable while apps are rebuilt.
+    # Absent → 204, which the client treats as "not in maintenance".
+    location = /maintenance.json {
+        root /srv/state;
+        add_header Cache-Control "no-store" always;
+        try_files /maintenance.json =204;
     }
 ` + strings.Join(apiBlocks, "\n") + `
 ` + strings.Join(spaBlocks, "\n") + `
@@ -464,6 +482,7 @@ func generateProdCompose(p paths, apps, widgets []*Manifest) string {
 	nginxDistVols := []string{
 		"      - ../hub/dist:/srv/hub:ro",
 		"      - ../hub/public:/srv/static:ro",
+		"      - ../state:/srv/state:ro", // maintenance.json flag (infra/maintenance)
 	}
 	for _, m := range all {
 		if m.Route == "" {
