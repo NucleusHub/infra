@@ -6,6 +6,12 @@
 # while it's active. Because nginx serves the file directly, the banner keeps
 # showing even while the app servers are being rebuilt.
 #
+# NOTE: The primary way to control this is now the Admin Console → Maintenance
+# tab, which manages translated presets and writes the same flag (per-language
+# messages). This CLI stays as an offline fallback (writes an English-only,
+# single-message flag) for when the auth-server/Mongo isn't up. Both are
+# interchangeable — the banner reads whichever wrote the file last.
+#
 # Usage:
 #   infra/maintenance on [PRESET] [ETA]     # raise the banner (see presets below)
 #   infra/maintenance on custom "message"   # raise with a fully custom message

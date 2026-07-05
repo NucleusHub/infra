@@ -79,6 +79,8 @@ services:
       APPS_DIR: /apps
       CORE_LOCALES_DIR: /core-locales
       HUB_LOCALES_DIR: /hub-locales
+      # The maintenance route writes the banner flag here; nginx serves it (ro).
+      STATE_DIR: /srv/state
     volumes:
       - ../core/auth-server:/app
       - auth_server_modules:/app/node_modules
@@ -86,6 +88,8 @@ services:
       - ../apps:/apps:ro
       - ../core/locales:/core-locales:ro
       - ../hub/locales:/hub-locales:ro
+      # Read-write: the admin Maintenance tab writes state/maintenance.json here.
+      - ../state:/srv/state
     depends_on:
       mongo:
         condition: service_healthy

@@ -188,21 +188,25 @@ func coreServices(p paths) []*Manifest {
 				Port:           3005,
 				HealthEndpoint: "/api/auth/health",
 				Env: &OrderedMap{
-					Keys: []string{"MONGODB_URI", "JWT_SECRET", "APPS_DIR", "CORE_LOCALES_DIR", "HUB_LOCALES_DIR"},
+					Keys: []string{"MONGODB_URI", "JWT_SECRET", "APPS_DIR", "CORE_LOCALES_DIR", "HUB_LOCALES_DIR", "STATE_DIR"},
 					Vals: map[string]string{
 						"MONGODB_URI":      "mongodb://mongo:27017/nucleus",
 						"JWT_SECRET":       "${JWT_SECRET:-nucleus-jwt-secret}",
 						"APPS_DIR":         "/apps",
 						"CORE_LOCALES_DIR": "/core-locales",
 						"HUB_LOCALES_DIR":  "/hub-locales",
+						"STATE_DIR":        "/srv/state",
 					},
 				},
 				Depends: []string{"mongo"},
-				// The localization service reads shipped locale files off disk.
+				// The localization service reads shipped locale files off disk; the
+				// maintenance route writes the banner flag into ../state (nginx
+				// serves it read-only — see generateProdCompose's nginx mounts).
 				BindMounts: []string{
 					"../apps:/apps:ro",
 					"../core/locales:/core-locales:ro",
 					"../hub/locales:/hub-locales:ro",
+					"../state:/srv/state",
 				},
 			},
 		},

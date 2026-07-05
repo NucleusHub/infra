@@ -294,10 +294,12 @@ services:
       APPS_DIR: /apps
       CORE_LOCALES_DIR: /core-locales
       HUB_LOCALES_DIR: /hub-locales
+      STATE_DIR: /srv/state
     volumes:
       - ../apps:/apps:ro
       - ../core/locales:/core-locales:ro
       - ../hub/locales:/hub-locales:ro
+      - ../state:/srv/state
     depends_on:
       mongo:
         condition: service_healthy
