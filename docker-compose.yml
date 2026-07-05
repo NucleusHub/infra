@@ -54,9 +54,11 @@ services:
       PORT: 4000
       APPS_DIR: /apps
       WIDGETS_DIR: /widgets
+      NUCLEUS_MANIFEST: /nucleus.json
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
 
   # Auth is core infrastructure (always present), so it lives in core/ and is
   # wired here directly rather than being a discoverable app under apps/.

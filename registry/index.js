@@ -13,6 +13,18 @@ const app = express()
 const PORT = process.env.PORT || 4000
 const APPS_DIR = process.env.APPS_DIR || '/apps'
 const WIDGETS_DIR = process.env.WIDGETS_DIR || '/widgets'
+// Single source of truth for the Nucleus platform version (core, docker
+// generator, SDK, APIs, manifest format, installer). Read once at startup.
+const NUCLEUS_MANIFEST = process.env.NUCLEUS_MANIFEST || '/nucleus.json'
+
+function readNucleus() {
+  try {
+    return JSON.parse(readFileSync(NUCLEUS_MANIFEST, 'utf8'))
+  } catch {
+    // Missing file shouldn't take the registry down — report unknown instead.
+    return { version: null, manifestVersion: null }
+  }
+}
 
 function readManifests(baseDir, filename) {
   try {
@@ -51,6 +63,12 @@ app.get('/api/registry/apps', (_, res) => {
 
 app.get('/api/registry/widgets', (_, res) => {
   res.json(readManifests(WIDGETS_DIR, 'nucleus.widget.json'))
+})
+
+// The Nucleus platform version — the ground truth clients compare module
+// `compatibility.nucleus` ranges against.
+app.get('/api/registry/nucleus', (_, res) => {
+  res.json(readNucleus())
 })
 
 app.get('/health', (_, res) => res.json({ ok: true }))

@@ -3,7 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 )
+
+// semverRe matches the Nucleus-supported SemVer form: MAJOR.MINOR.PATCH with an
+// optional -alpha.N / -beta.N / -rc.N prerelease. Mirrors core/version.js.
+var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$`)
 
 // provisionedServices are the backing services generate can auto-provision.
 // Anything an app/widget depends on must be one of these or another declared
@@ -87,6 +92,23 @@ func validate(p paths, apps, widgets []*Manifest) {
 		}
 		if !found {
 			warnings = append(warnings, fmt.Sprintf("%s sets route %q but no nginx route has that path — it won't be served as an SPA in prod", m.label(), m.Route))
+		}
+	}
+
+	// Versioning hygiene — warn (never fail) so the ecosystem can adopt SemVer
+	// gradually. Every installable module should declare a valid version, a
+	// manifestVersion, and a nucleus compatibility range. See infra/nucleus-docs/VERSIONING.md.
+	for _, m := range append(append([]*Manifest{}, apps...), widgets...) {
+		if m.Version == "" {
+			warnings = append(warnings, fmt.Sprintf("%s has no \"version\" — every module should declare a SemVer version", m.label()))
+		} else if !semverRe.MatchString(m.Version) {
+			warnings = append(warnings, fmt.Sprintf("%s version %q is not valid SemVer (expected e.g. 0.1.0 or 1.0.0-beta.2)", m.label(), m.Version))
+		}
+		if m.ManifestVersion == 0 {
+			warnings = append(warnings, fmt.Sprintf("%s has no \"manifestVersion\" — set it to 1", m.label()))
+		}
+		if m.Compatibility == nil || m.Compatibility.Nucleus == "" {
+			warnings = append(warnings, fmt.Sprintf("%s has no \"compatibility.nucleus\" range — declare which platform versions it supports", m.label()))
 		}
 	}
 

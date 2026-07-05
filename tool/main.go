@@ -74,6 +74,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
+	case "bump":
+		if err := runBump(p, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -90,6 +95,8 @@ Usage:
   nucleus generate          regenerate nginx + docker-compose configs from manifests
   nucleus build [--force]   incrementally build all frontends, then deploy the stack
   nucleus dev               start the dev stack (no-op if it's already running)
+  nucleus bump <module> <part> [channel]
+                            bump a module/platform SemVer version (see VERSIONING.md)
 
 Flags (build):
   --force, -f     ignore the build cache and rebuild every unit

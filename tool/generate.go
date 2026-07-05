@@ -566,9 +566,11 @@ services:
       PORT: 4000
       APPS_DIR: /apps
       WIDGETS_DIR: /widgets
+      NUCLEUS_MANIFEST: /nucleus.json
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
 
 `)
 	out.WriteString(strings.Join(serverBlocks, "\n"))

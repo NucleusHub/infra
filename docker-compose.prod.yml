@@ -61,9 +61,11 @@ services:
       PORT: 4000
       APPS_DIR: /apps
       WIDGETS_DIR: /widgets
+      NUCLEUS_MANIFEST: /nucleus.json
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
 
   echo-server:
     build:
@@ -289,6 +291,13 @@ services:
       PORT: 3005
       MONGODB_URI: mongodb://mongo:27017/nucleus
       JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+      APPS_DIR: /apps
+      CORE_LOCALES_DIR: /core-locales
+      HUB_LOCALES_DIR: /hub-locales
+    volumes:
+      - ../apps:/apps:ro
+      - ../core/locales:/core-locales:ro
+      - ../hub/locales:/hub-locales:ro
     depends_on:
       mongo:
         condition: service_healthy

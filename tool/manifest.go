@@ -76,11 +76,26 @@ type Server struct {
 	BindMounts []string `json:"-"`
 }
 
+// Compatibility mirrors manifest.compatibility — a module's declared support
+// range against the platform. Only nucleus is used today; the struct leaves
+// room for future keys (e.g. per-module deps) without a schema break.
+type Compatibility struct {
+	Nucleus string `json:"nucleus"`
+}
+
 type Manifest struct {
 	ID     string  `json:"id"`
 	Route  string  `json:"route"`
 	Nginx  *Nginx  `json:"nginx"`
 	Server *Server `json:"server"`
+
+	// Versioning metadata (SemVer). Parsed but not required for generation —
+	// docker/nginx output doesn't depend on it. validate() warns (never fails)
+	// on missing/invalid values so builds stay unblocked while the ecosystem
+	// adopts versioning. See infra/nucleus-docs/VERSIONING.md.
+	Version         string         `json:"version"`
+	ManifestVersion int            `json:"manifestVersion"`
+	Compatibility   *Compatibility `json:"compatibility"`
 
 	dir  string // _dir — absolute path to the app/widget directory
 	role string // _role — overrides the compose label role (auth, widget-server)

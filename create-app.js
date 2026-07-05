@@ -126,6 +126,11 @@ const manifest = {
   id,
   name,
   description,
+  // Every module owns its SemVer version independently of the platform.
+  // Starts at 0.1.0 (pre-1.0 development). See infra/nucleus-docs/VERSIONING.md.
+  version: '0.1.0',
+  manifestVersion: 1,
+  compatibility: { nucleus: '>=0.1.0 <1.0.0' },
   route,
   icon: 'icon.svg',
   hub: { showInSidebar: true, showOnDashboard: true },
