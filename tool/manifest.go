@@ -72,8 +72,10 @@ type Server struct {
 	StartPeriod    string      `json:"startPeriod"`
 	// Raw bind-mount lines (e.g. "../apps:/apps:ro") emitted verbatim into the
 	// prod service's volumes. Unlike NamedVolumes these are NOT declared as
-	// top-level named volumes. Internal-only (set by coreServices, not JSON).
-	BindMounts []string `json:"-"`
+	// top-level named volumes. Set by coreServices or declared in an app's
+	// nucleus.app.json server.bindMounts (e.g. Echo mounts ../apps for its
+	// manifest-driven registry).
+	BindMounts []string `json:"bindMounts"`
 }
 
 // Compatibility mirrors manifest.compatibility — a module's declared support

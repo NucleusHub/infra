@@ -84,6 +84,8 @@ services:
       REDIS_URL: redis://redis:6379
       APPS_DIR: /apps
       JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+    volumes:
+      - ../apps:/apps:ro
     depends_on:
       mongo:
         condition: service_healthy
