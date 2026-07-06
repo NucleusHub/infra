@@ -8,7 +8,7 @@
 
 ### Profile settings
 * Animations for each app
-* Personalization
+* ~~Personalization~~
 
 ### Apps
 * Complete Prism
