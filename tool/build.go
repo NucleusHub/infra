@@ -479,7 +479,10 @@ func sortedDirs(base string) ([]string, error) {
 }
 
 // forceSymlink creates (or replaces) a symlink at linkPath pointing to target,
-// matching `ln -sfn`: it never dereferences an existing link-to-dir.
+// matching `ln -sfn`: it never dereferences an existing link-to-dir. The link is
+// written RELATIVE to its own directory so it stays portable across checkouts
+// (these links are committed) and a rebuild never rewrites a committed relative
+// link into a machine-specific absolute path.
 func forceSymlink(target, linkPath string) {
 	if fi, err := os.Lstat(linkPath); err == nil {
 		// Replace existing symlinks; leave real dirs/files alone (ln -sfn would
@@ -487,6 +490,9 @@ func forceSymlink(target, linkPath string) {
 		if fi.Mode()&os.ModeSymlink != 0 {
 			os.Remove(linkPath)
 		}
+	}
+	if rel, err := filepath.Rel(filepath.Dir(linkPath), target); err == nil {
+		target = rel
 	}
 	os.Symlink(target, linkPath)
 }

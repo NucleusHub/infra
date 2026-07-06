@@ -74,13 +74,15 @@ func TestForceSymlinkReplaces(t *testing.T) {
 	os.Mkdir(target2, 0o755)
 	link := filepath.Join(dir, "link")
 
+	// Links are written relative to their own directory; here target and link
+	// are siblings in dir, so the relative target is just the basename.
 	forceSymlink(target1, link)
-	if got, _ := os.Readlink(link); got != target1 {
-		t.Fatalf("link -> %q, want %q", got, target1)
+	if got, _ := os.Readlink(link); got != "t1" {
+		t.Fatalf("link -> %q, want %q", got, "t1")
 	}
 	// Replacing an existing symlink should succeed (ln -sfn semantics).
 	forceSymlink(target2, link)
-	if got, _ := os.Readlink(link); got != target2 {
-		t.Fatalf("after replace link -> %q, want %q", got, target2)
+	if got, _ := os.Readlink(link); got != "t2" {
+		t.Fatalf("after replace link -> %q, want %q", got, "t2")
 	}
 }
