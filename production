@@ -19,7 +19,20 @@ set -euo pipefail
 
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Wall-clock timer for the whole run (tool compile + build + deploy). The trap
+# fires on any exit — success, failure, or Ctrl-C — so the elapsed time is
+# always reported at the end.
+START_TIME=$(date +%s)
+report_elapsed() {
+  local elapsed=$(( $(date +%s) - START_TIME ))
+  printf '\n⏱  Total time: %s min (%dm %02ds)\n' \
+    "$(awk "BEGIN { printf \"%.2f\", $elapsed / 60 }")" \
+    "$((elapsed / 60))" "$((elapsed % 60))"
+}
+trap report_elapsed EXIT
+
 BIN="$("$INFRA/ensure-tool")"
 
 cd "$INFRA"
-exec "$BIN" build "$@"
+# Not `exec` — the shell must stay alive so the EXIT trap can report the time.
+"$BIN" build "$@"
