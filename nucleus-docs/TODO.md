@@ -4,7 +4,7 @@
 
 ### Watchlist
 * Watchlist "folders"
-* Show/season progress in Watchlist
+* ~~Show/season progress in Watchlist~~
 
 ### Profile settings
 * Animations for each app
