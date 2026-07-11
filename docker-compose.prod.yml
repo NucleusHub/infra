@@ -74,7 +74,7 @@ services:
 
   plugin-runtime:
     build:
-      context: ./plugin-runtime
+      context: ../plugin-runtime
     restart: unless-stopped
     labels:
       nucleus.managed: "true"

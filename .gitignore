@@ -28,5 +28,3 @@ logs/
 # Compiled Go infra tool (built on demand by ensure-tool)
 tool/nucleus
 
-# Plugin runtime — its own repo (NucleusHub/plugin-runtime)
-plugin-runtime/

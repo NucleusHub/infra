@@ -69,7 +69,7 @@ services:
   # truth), but for plugins. Discovery only: it never executes plugin code.
   plugin-runtime:
     build:
-      context: ./plugin-runtime
+      context: ../plugin-runtime
     restart: unless-stopped
     labels:
       nucleus.managed: "true"

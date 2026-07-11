@@ -597,7 +597,7 @@ services:
 
   plugin-runtime:
     build:
-      context: ./plugin-runtime
+      context: ../plugin-runtime
     restart: unless-stopped
 `)
 	out.WriteString(labelsBlock("plugin-runtime", "", nil))
