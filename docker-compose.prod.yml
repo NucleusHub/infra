@@ -22,6 +22,7 @@ services:
       - ../apps/goal-calendar/client/dist:/srv/goals:ro
       - ../apps/orbit/client/dist:/srv/orbit:ro
       - ../apps/prism/client/dist:/srv/prism:ro
+      - ../apps/shelf/client/dist:/srv/shelf:ro
       - ../apps/watchlist/client/dist:/srv/watchlist:ro
       - ../widgets/spotify/client/dist:/srv/spotify:ro
       - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
@@ -29,6 +30,8 @@ services:
       - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       registry:
+        condition: service_started
+      plugin-runtime:
         condition: service_started
       echo-server:
         condition: service_healthy
@@ -39,6 +42,8 @@ services:
       prism-server:
         condition: service_healthy
       pulse-server:
+        condition: service_healthy
+      shelf-server:
         condition: service_healthy
       watchlist-server:
         condition: service_healthy
@@ -65,6 +70,22 @@ services:
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
+
+  plugin-runtime:
+    build:
+      context: ./plugin-runtime
+    restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "plugin-runtime"
+    environment:
+      PORT: 4100
+      PLUGINS_DIR: /plugins
+      NUCLEUS_MANIFEST: /nucleus.json
+    volumes:
+      - ../plugins:/plugins:ro
       - ./nucleus.json:/nucleus.json:ro
 
   echo-server:
@@ -219,6 +240,34 @@ services:
       retries: 10
       start_period: 10s
 
+  shelf-server:
+    build:
+      context: ../apps/shelf/server
+    restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "app-server"
+      nucleus.app: "shelf"
+      nucleus.depends: "mongo"
+    command: ["node", "index.js"]
+    environment:
+      PORT: 3010
+      MONGODB_URI: mongodb://mongo:27017/nucleus
+      JWT_SECRET: ${JWT_SECRET:-nucleus-jwt-secret}
+    volumes:
+      - shelf_uploads_data:/app/uploads
+      - ../core:/app/core:ro
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/api/shelf/health',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   watchlist-server:
     build:
       context: ../apps/watchlist/server
@@ -312,6 +361,7 @@ services:
       - ../core/locales:/core-locales:ro
       - ../hub/locales:/hub-locales:ro
       - ../state:/srv/state
+      - ../plugins:/app/plugins:ro
     depends_on:
       mongo:
         condition: service_healthy
@@ -383,4 +433,5 @@ volumes:
   mongo_data:
   minio_data:
   redis_data:
+  shelf_uploads_data:
   uploads_data:

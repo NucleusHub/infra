@@ -248,6 +248,16 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    location /api/plugins {
+        # Plugin runtime — discovery/metadata only. Variable + resolver so nginx
+        # re-resolves its IP per request (survives container restarts).
+        set $plugins_upstream plugin-runtime:4100;
+        proxy_pass http://$plugins_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     # Maintenance flag — a static file written by infra/maintenance and served by
     # nginx (not an app server), so it stays reachable while apps are rebuilt.
     # Absent → 204, which the client treats as "not in maintenance".
@@ -337,6 +347,16 @@ server {
         # (survives registry container restarts without an nginx restart).
         set $registry_upstream registry:4000;
         proxy_pass http://$registry_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /api/plugins {
+        # Plugin runtime — discovery/metadata only. Variable + resolver so nginx
+        # re-resolves its IP per request (survives container restarts).
+        set $plugins_upstream plugin-runtime:4100;
+        proxy_pass http://$plugins_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -496,7 +516,10 @@ func generateProdCompose(p paths, apps, widgets []*Manifest) string {
 		nginxDistVols = append(nginxDistVols, fmt.Sprintf("      - %s/client/dist:/srv/%s:ro", rel, dir))
 	}
 
-	nginxDependsLines := []string{"      registry:\n        condition: service_started"}
+	nginxDependsLines := []string{
+		"      registry:\n        condition: service_started",
+		"      plugin-runtime:\n        condition: service_started",
+	}
 	for _, m := range withServers {
 		nginxDependsLines = append(nginxDependsLines, fmt.Sprintf("      %s:\n        condition: service_healthy", m.Server.Service))
 	}
@@ -570,6 +593,20 @@ services:
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
+
+  plugin-runtime:
+    build:
+      context: ./plugin-runtime
+    restart: unless-stopped
+`)
+	out.WriteString(labelsBlock("plugin-runtime", "", nil))
+	out.WriteString(`    environment:
+      PORT: 4100
+      PLUGINS_DIR: /plugins
+      NUCLEUS_MANIFEST: /nucleus.json
+    volumes:
+      - ../plugins:/plugins:ro
       - ./nucleus.json:/nucleus.json:ro
 
 `)

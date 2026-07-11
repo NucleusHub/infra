@@ -20,6 +20,7 @@ services:
     depends_on:
       - hub
       - registry
+      - plugin-runtime
 
   hub:
     build:
@@ -36,6 +37,9 @@ services:
       - ../hub/vite.config.js:/app/vite.config.js
       - ../widgets:/app/widgets:ro
       - ../core:/app/core:ro
+      # What's New (and future core plugins) live under /plugins; core components
+      # bundled into the hub import them relatively. Read-only.
+      - ../plugins:/app/plugins:ro
     environment:
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
@@ -58,6 +62,25 @@ services:
     volumes:
       - ../apps:/apps:ro
       - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
+
+  # Plugin runtime — discovers & validates plugins under /plugins and serves their
+  # metadata at /api/plugins. Mirrors the registry service (single source of
+  # truth), but for plugins. Discovery only: it never executes plugin code.
+  plugin-runtime:
+    build:
+      context: ./plugin-runtime
+    restart: unless-stopped
+    labels:
+      nucleus.managed: "true"
+      nucleus.stack: "nucleus"
+      nucleus.role: "plugin-runtime"
+    environment:
+      PORT: 4100
+      PLUGINS_DIR: /plugins
+      NUCLEUS_MANIFEST: /nucleus.json
+    volumes:
+      - ../plugins:/plugins:ro
       - ./nucleus.json:/nucleus.json:ro
 
   # Auth is core infrastructure (always present), so it lives in core/ and is
@@ -84,6 +107,9 @@ services:
     volumes:
       - ../core/auth-server:/app
       - auth_server_modules:/app/node_modules
+      # The What's New plugin's server (route + model) lives here; routes/index.js
+      # mounts it at /api/auth/whats-new. Read-only.
+      - ../plugins:/app/plugins:ro
       # Read-only sources for the localization catalog (core + hub + each app).
       - ../apps:/apps:ro
       - ../core/locales:/core-locales:ro

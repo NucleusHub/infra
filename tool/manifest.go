@@ -209,6 +209,9 @@ func coreServices(p paths) []*Manifest {
 					"../core/locales:/core-locales:ro",
 					"../hub/locales:/hub-locales:ro",
 					"../state:/srv/state",
+					// Core plugins ship server code under /plugins (e.g. the
+					// What's New route mounted at /api/auth/whats-new). Read-only.
+					"../plugins:/app/plugins:ro",
 				},
 			},
 		},
