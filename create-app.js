@@ -206,6 +206,12 @@ ${composeServer}  ${serviceClient}:
       - ./client/src:/app/src
       - ./client/index.html:/app/index.html
       - ./client/vite.config.js:/app/vite.config.js
+      # Locale files for main.js's ../locales/en-US.json fallback. The baked-in
+      # client/locales symlink (-> ../locales) dangles in the container because
+      # ../locales is outside the ./client build context; mount the dir at the
+      # symlink's resolved target (/app/locales -> /locales) so Vite resolves it
+      # in dev. (Prod is fine: dist/ is built on the host.)
+      - ./locales:/locales:ro
       # core/ is mounted so the @core alias resolves inside the dev container
       # (mirrors the committed client/core symlink used by host builds).
       - ../../core:/app/core:ro

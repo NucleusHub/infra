@@ -69,12 +69,21 @@ func runGenerate(p paths) error {
 	writes := []struct {
 		path, content, log string
 	}{
-		{filepath.Join(p.infra, "nginx", "nginx.conf"), withHost(generateNginx(p, apps, widgets)), "→ nginx/nginx.conf"},
+		// nginx configs go into per-env DIRECTORIES (conf.d/ dev, prod/ prod) that
+		// are bind-mounted as a whole. Mounting the directory (not the single file)
+		// means a regenerated config — a new inode — is visible to a running nginx,
+		// so `nginx -s reload` applies it without recreating the container. A
+		// single-file bind mount pins the container to the original inode, which is
+		// why a stale config survived reloads until now.
+		{filepath.Join(p.infra, "nginx", "conf.d", "default.conf"), withHost(generateNginx(p, apps, widgets)), "→ nginx/conf.d/default.conf"},
 		{filepath.Join(p.infra, "docker-compose.override.yml"), generateOverride(p, apps, widgets, hubLibs), "→ docker-compose.override.yml"},
-		{filepath.Join(p.infra, "nginx", "nginx.prod.conf"), withHost(generateProdNginx(p, apps, widgets)), "→ nginx/nginx.prod.conf"},
+		{filepath.Join(p.infra, "nginx", "prod", "default.conf"), withHost(generateProdNginx(p, apps, widgets)), "→ nginx/prod/default.conf"},
 		{filepath.Join(p.infra, "docker-compose.prod.yml"), generateProdCompose(p, apps, widgets), "→ docker-compose.prod.yml"},
 	}
 	for _, w := range writes {
+		if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
+			return err
+		}
 		if err := os.WriteFile(w.path, []byte(w.content), 0o644); err != nil {
 			return err
 		}
@@ -573,7 +582,7 @@ services:
 	out.WriteString(`
       - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
       - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
-      - ./nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/prod:/etc/nginx/conf.d:ro
     depends_on:
 `)
 	out.WriteString(strings.Join(nginxDependsLines, "\n"))

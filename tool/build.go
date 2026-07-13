@@ -137,6 +137,16 @@ func runBuild(p paths, args []string) error {
 		return fmt.Errorf("docker compose up failed: %w", err)
 	}
 
+	// `up -d` recreates nginx only when its compose config changes, not when the
+	// regenerated config file changes — so reload it explicitly to pick up new
+	// routes. The nginx config dir is bind-mounted (not a single file), so a
+	// running nginx sees the new file and reload applies it. Best-effort: a
+	// just-recreated nginx already has the new config, and a reload is a no-op
+	// when nothing changed, so a failure here is benign.
+	reload := exec.Command("docker", "compose", "-f", "docker-compose.prod.yml", "exec", "-T", "nginx", "nginx", "-s", "reload")
+	reload.Dir = p.infra
+	_ = reload.Run()
+
 	// Persist context fingerprints only after a successful deploy, so a failed
 	// build/up re-attempts the same services next run rather than caching a miss.
 	for name, fp := range fps {
