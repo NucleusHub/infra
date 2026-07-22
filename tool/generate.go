@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -34,6 +35,28 @@ const (
 // nucleus-data stack (shared by both colors), so a color stack never declares a
 // depends_on against them — it reaches them over dataNet instead.
 var dataServices = map[string]bool{"mongo": true, "redis": true, "minio": true}
+
+// stackStartPeriodFloor is the minimum healthcheck start_period for color-stack
+// servers. All servers boot at once during a deploy, so on a small host the
+// startup CPU spike can make a healthy-but-slow server look unhealthy; this floor
+// keeps such a server in "starting" long enough to avoid aborting the deploy.
+const stackStartPeriodFloor = "120s"
+
+// maxSeconds returns whichever of two "<n>s" durations is larger. A value that
+// isn't a plain "<n>s" (or is smaller than the floor) falls back to floor.
+func maxSeconds(v, floor string) string {
+	sec := func(s string) int {
+		n, err := strconv.Atoi(strings.TrimSuffix(s, "s"))
+		if err != nil || !strings.HasSuffix(s, "s") {
+			return -1
+		}
+		return n
+	}
+	if sec(v) > sec(floor) {
+		return v
+	}
+	return floor
+}
 
 // nucleusHost resolves the public hostname: the NUCLEUS_HOST environment
 // variable (set by loadEnv in build/dev), else the value in infra/.env, else
@@ -534,6 +557,12 @@ func stackServerBlock(p paths, m *Manifest) string {
 	if startPeriod == "" {
 		startPeriod = "10s"
 	}
+	// Blue/green boots every server at once, so on a small host the CPU spike can
+	// make a slow-but-fine server's health check fail long enough to be marked
+	// unhealthy — which aborts `docker compose up`. Floor the start_period (during
+	// which failing checks count as "starting", not "unhealthy") so startup
+	// contention doesn't fail the deploy. Genuine failures still surface after it.
+	startPeriod = maxSeconds(startPeriod, stackStartPeriodFloor)
 
 	envLines := []string{fmt.Sprintf("      PORT: %d", s.Port)}
 	if s.Env != nil {
