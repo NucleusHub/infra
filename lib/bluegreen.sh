@@ -20,6 +20,15 @@ STACKS_DIR="$INFRA/.stacks"          # per-color static snapshots + state file
 STATE_FILE="$STACKS_DIR/active"      # which color currently serves traffic
 EDGE_ACTIVE="$INFRA/nginx/edge/active.inc"
 
+# nvm's shell init isn't loaded in non-interactive / non-login shells (e.g. an
+# `ssh host './production'` invocation), so node/npm — needed by `nucleus build`
+# and the health checks — may be off PATH. Put the newest installed node on PATH
+# if it's missing. Harmless when node is already available.
+if ! command -v node >/dev/null 2>&1; then
+  _node_bin="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -n1 || true)"
+  [ -n "${_node_bin:-}" ] && export PATH="$_node_bin:$PATH"
+fi
+
 # ── Topology constants ────────────────────────────────────────────────────────
 DATA_NET="nucleus-data-net"
 EDGE_NET="nucleus-edge-net"

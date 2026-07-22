@@ -744,9 +744,12 @@ func generateStackCompose(p paths, apps, widgets []*Manifest) string {
 	}
 
 	// web nginx static mounts: hub + per-route app dist, from this color's snapshot.
+	// Snapshots live under infra/.stacks (see snapshot_dist), and compose resolves
+	// relative bind mounts against the compose file's dir (infra/), so these are
+	// "./.stacks/…" — NOT "../" (that would point one level above infra/).
 	webVols := []string{
-		"      - ../.stacks/${NUCLEUS_COLOR}/srv/hub:/srv/hub:ro",
-		"      - ../.stacks/${NUCLEUS_COLOR}/srv/static:/srv/static:ro",
+		"      - ./.stacks/${NUCLEUS_COLOR}/srv/hub:/srv/hub:ro",
+		"      - ./.stacks/${NUCLEUS_COLOR}/srv/static:/srv/static:ro",
 		"      - ../state:/srv/state:ro", // maintenance.json flag (infra/maintenance)
 	}
 	for _, m := range all {
@@ -754,7 +757,7 @@ func generateStackCompose(p paths, apps, widgets []*Manifest) string {
 			continue
 		}
 		dir := strings.TrimPrefix(m.Route, "/")
-		webVols = append(webVols, fmt.Sprintf("      - ../.stacks/${NUCLEUS_COLOR}/srv/%s:/srv/%s:ro", dir, dir))
+		webVols = append(webVols, fmt.Sprintf("      - ./.stacks/${NUCLEUS_COLOR}/srv/%s:/srv/%s:ro", dir, dir))
 	}
 	webVols = append(webVols, "      - ./nginx/stack:/etc/nginx/conf.d:ro")
 
