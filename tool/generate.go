@@ -815,7 +815,10 @@ services:
         aliases:
           - web-${NUCLEUS_COLOR}
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      # 127.0.0.1, not localhost: in the alpine image localhost resolves to ::1
+      # first, where nginx isn't listening (IPv4 only) — busybox wget would then
+      # fail with "connection refused" and the web would be perma-unhealthy.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
       interval: 5s
       timeout: 5s
       retries: 10

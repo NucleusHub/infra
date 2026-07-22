@@ -34,7 +34,9 @@ DATA_NET="nucleus-data-net"
 EDGE_NET="nucleus-edge-net"
 BLUE_PORT=8081                       # debug host port for the blue web nginx
 GREEN_PORT=8082                      # debug host port for the green web nginx
-HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"  # seconds to wait for a stack to go healthy
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-300}"  # seconds to wait for a stack to go healthy
+                                         # (generous: a small box's health checks
+                                         # flap under the mass-startup load spike)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 _BOLD="$(printf '\033[1m')"; _GREEN="$(printf '\033[32m')"; _YELLOW="$(printf '\033[33m')"
