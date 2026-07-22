@@ -1,38 +1,88 @@
 #!/usr/bin/env bash
-# infra/production — build everything for production and deploy the prod stack.
+# infra/production — zero-downtime blue/green deployment.
 #
-# Usage: infra/production [--force] [-j N]
+# Usage: infra/production [--force] [-j N]     (flags are forwarded to `nucleus build`)
 #
-# This is a thin shim around the `nucleus` infra tool (infra/tool, written in Go).
-# It compiles the tool on demand (in a golang:1.23-alpine container — no host Go
-# needed) and hands off to `nucleus build`, which does the real work:
+# The currently-running color stays online through the git pull, the frontend +
+# image builds, and the new color's startup + health checks. The ONLY moment
+# traffic is touched is a single graceful edge reload once the new color is
+# confirmed healthy. If the new color never goes healthy, the old one keeps
+# serving and the failed color is left up for debugging.
 #
-#   • incremental, parallel frontend builds (hub, every app client, widgets) with
-#     a content-fingerprint cache under infra/.build-cache; npm/pnpm install is
-#     skipped unless the lockfile changed
-#   • regenerates nginx + docker-compose configs from the app/widget manifests
-#   • brings the production stack up with `docker compose ... up -d --build`
+# Topology (see infra/lib/bluegreen.sh):
+#   nucleus-data   always-on  mongo/redis/minio
+#   nucleus-blue   ┐ one serves traffic, the other is the deploy target;
+#   nucleus-green  ┘ they alternate every deploy
+#   nucleus-edge   always-on  nginx :80/:443 → active color
 #
-# Flags: --force / -f  rebuild every unit;  -j N  max parallel build units.
-# Run from any directory — paths are resolved relative to this script.
+# First-time setup (migrating off the old single-project stack) is a separate,
+# one-time script: infra/bluegreen-init.
 set -euo pipefail
 
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=infra/lib/bluegreen.sh
+source "$INFRA/lib/bluegreen.sh"
 
-# Wall-clock timer for the whole run (tool compile + build + deploy). The trap
-# fires on any exit — success, failure, or Ctrl-C — so the elapsed time is
-# always reported at the end.
+# Wall-clock timer for the whole run — reported on any exit (success/fail/Ctrl-C).
 START_TIME=$(date +%s)
 report_elapsed() {
   local elapsed=$(( $(date +%s) - START_TIME ))
-  printf '\n⏱  Total time: %s min (%dm %02ds)\n' \
-    "$(awk "BEGIN { printf \"%.2f\", $elapsed / 60 }")" \
-    "$((elapsed / 60))" "$((elapsed % 60))"
+  printf '\n⏱  Total time: %dm %02ds\n' "$((elapsed / 60))" "$((elapsed % 60))"
 }
 trap report_elapsed EXIT
 
-BIN="$("$INFRA/ensure-tool")"
+[ -n "$(read_active)" ] || die "No active color found. Run infra/bluegreen-init first (one-time migration)."
 
-cd "$INFRA"
-# Not `exec` — the shell must stay alive so the EXIT trap can report the time.
-"$BIN" build "$@"
+OLD="$(read_active)"
+TARGET="$(target_color)"
+
+# ── 1. Pull ───────────────────────────────────────────────────────────────────
+log_stage "Pulling latest changes..."
+"$INFRA/update" || log_warn "Some repos failed to pull — continuing with what is checked out."
+
+# ── 2. Bootstrap the always-on layers (idempotent) ────────────────────────────
+ensure_networks
+set_mongo_image
+ensure_data
+ensure_edge
+
+log_info "Active color: ${OLD} → deploying to: ${TARGET}"
+
+# ── 3. Build frontends + regenerate configs (does NOT touch Docker) ───────────
+log_stage "Building images..."
+BIN="$("$INFRA/ensure-tool")"
+( cd "$INFRA" && "$BIN" build "$@" )
+
+# ── 4. Snapshot the fresh dist into the target color (leaves the live color's) ─
+log_info "Snapshotting frontend build into ${TARGET}…"
+snapshot_dist "$TARGET"
+
+# ── 5. Start the target color alongside the live one (own project + debug port) ─
+log_stage "Starting ${TARGET^}..."
+dc_stack "$TARGET" up -d --build --remove-orphans
+
+# ── 6. Wait until the whole target color is healthy ───────────────────────────
+log_stage "Waiting for health..."
+if ! wait_stack_healthy "$TARGET" || ! health_probe "$TARGET"; then
+  log_err "The ${TARGET} stack did not become healthy within ${HEALTH_TIMEOUT}s."
+  dc_stack "$TARGET" ps || true
+  log_err "Traffic NOT switched — ${OLD} is still serving."
+  log_err "Inspect the failed color:  cd $INFRA && NUCLEUS_COLOR=$TARGET NUCLEUS_WEB_PORT=$(color_port "$TARGET") docker compose -p nucleus-$TARGET logs"
+  log_err "It was left running on http://localhost:$(color_port "$TARGET") for debugging."
+  exit 1
+fi
+
+# ── 7. Switch traffic (single graceful edge reload) ───────────────────────────
+log_stage "Switching traffic..."
+switch_traffic "$TARGET"
+write_active "$TARGET"
+
+# ── 8. Stop the old color (kept intact for one-command rollback) ──────────────
+log_stage "Stopping ${OLD^}..."
+stop_stack "$OLD"
+
+# ── 9. Done ───────────────────────────────────────────────────────────────────
+base="https://$(grep -E '^NUCLEUS_HOST=' "$INFRA/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' || true)"
+log_ok "Deployment complete. Now serving: ${TARGET}"
+[ "$base" != "https://" ] && log_info "→ ${base}/"
+log_info "Roll back with: infra/rollback"

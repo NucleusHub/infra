@@ -21,6 +21,20 @@ var anchorFallbackHTML string
 // fallback when nothing is configured.
 const defaultHost = "nucleus.olm-altair.ts.net"
 
+// Blue/green networking. The two networks are external (created once by the
+// deploy bootstrap) so the always-on data stack, both color stacks, and the
+// edge proxy can all attach to them and resolve each other by service name /
+// alias across compose projects.
+const (
+	dataNet = "nucleus-data-net" // servers ↔ mongo/redis/minio
+	edgeNet = "nucleus-edge-net" // edge proxy ↔ each color's web nginx
+)
+
+// dataServices are the stateful backing services. They live in the always-on
+// nucleus-data stack (shared by both colors), so a color stack never declares a
+// depends_on against them — it reaches them over dataNet instead.
+var dataServices = map[string]bool{"mongo": true, "redis": true, "minio": true}
+
 // nucleusHost resolves the public hostname: the NUCLEUS_HOST environment
 // variable (set by loadEnv in build/dev), else the value in infra/.env, else
 // the default. Single source of truth for the nginx server_name and the links.
@@ -77,8 +91,14 @@ func runGenerate(p paths) error {
 		// why a stale config survived reloads until now.
 		{filepath.Join(p.infra, "nginx", "conf.d", "default.conf"), withHost(generateNginx(p, apps, widgets)), "→ nginx/conf.d/default.conf"},
 		{filepath.Join(p.infra, "docker-compose.override.yml"), generateOverride(p, apps, widgets, hubLibs), "→ docker-compose.override.yml"},
-		{filepath.Join(p.infra, "nginx", "prod", "default.conf"), withHost(generateProdNginx(p, apps, widgets)), "→ nginx/prod/default.conf"},
-		{filepath.Join(p.infra, "docker-compose.prod.yml"), generateProdCompose(p, apps, widgets), "→ docker-compose.prod.yml"},
+		// Blue/green production: an always-on shared data stack, a color-swappable
+		// app stack (run with -p nucleus-blue|nucleus-green), and an always-on edge
+		// proxy that owns 80/443+TLS and forwards to whichever color is active.
+		{filepath.Join(p.infra, "nginx", "stack", "default.conf"), withHost(generateStackNginx(p, apps, widgets)), "→ nginx/stack/default.conf"},
+		{filepath.Join(p.infra, "nginx", "edge", "default.conf"), withHost(generateEdgeNginx(p)), "→ nginx/edge/default.conf"},
+		{filepath.Join(p.infra, "docker-compose.data.yml"), generateDataCompose(p, apps, widgets), "→ docker-compose.data.yml"},
+		{filepath.Join(p.infra, "docker-compose.stack.yml"), generateStackCompose(p, apps, widgets), "→ docker-compose.stack.yml"},
+		{filepath.Join(p.infra, "docker-compose.edge.yml"), generateEdgeCompose(p), "→ docker-compose.edge.yml"},
 	}
 	for _, w := range writes {
 		if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
@@ -88,6 +108,17 @@ func runGenerate(p paths) error {
 			return err
 		}
 		fmt.Println(w.log)
+	}
+
+	// active.inc is the edge proxy's live switch state (set $active web-<color>),
+	// owned by the deploy/switch helper. Seed a safe default only when it doesn't
+	// exist yet — never clobber the running target on a regenerate.
+	activeInc := filepath.Join(p.infra, "nginx", "edge", "active.inc")
+	if !exists(activeInc) {
+		if err := os.WriteFile(activeInc, []byte("set $active web-blue;\n"), 0o644); err != nil {
+			return err
+		}
+		fmt.Println("→ nginx/edge/active.inc (seeded: blue)")
 	}
 	return nil
 }
@@ -298,9 +329,15 @@ server {
 `
 }
 
-// ── Prod Nginx ───────────────────────────────────────────────────────────────
+// ── Stack (color) Nginx ──────────────────────────────────────────────────────
 
-func generateProdNginx(p paths, apps, widgets []*Manifest) string {
+// generateStackNginx emits the per-color web nginx config. It is identical to
+// the old prod nginx EXCEPT it terminates no TLS and does no HTTP→HTTPS
+// redirect — the always-on edge proxy owns 80/443+TLS and forwards plain HTTP to
+// this server. Route upstreams are Docker service names, which resolve to *this
+// color's* servers inside the color's own compose project, so the same config
+// serves both blue and green unchanged.
+func generateStackNginx(p paths, apps, widgets []*Manifest) string {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
 
 	var apiRoutes, spaRoutes []Route
@@ -332,21 +369,12 @@ func generateProdNginx(p paths, apps, widgets []*Manifest) string {
     }`, r.Path, dir))
 	}
 
-	return `# Redirect nucleus.olm-altair.ts.net HTTP traffic to HTTPS (external access with TLS cert)
-server {
-    listen 80;
-    server_name nucleus.olm-altair.ts.net;
-    return 301 https://nucleus.olm-altair.ts.net$request_uri;
-}
-
-# Main server — HTTPS for nucleus.olm-altair.ts.net, plain HTTP for localhost / IP access
+	return `# Per-color web server. TLS + HTTP→HTTPS redirect are handled by the edge proxy;
+# this server listens plain HTTP and is reached over the edge network (and a
+# debug host port). Upstreams resolve to this color's own servers.
 server {
     listen 80 default_server;
-    listen 443 ssl;
     server_name _;
-
-    ssl_certificate /etc/ssl/certs/nucleus.crt;
-    ssl_certificate_key /etc/ssl/private/nucleus.key;
 
     # Docker's internal DNS — lets nginx start even when optional services aren't up yet
     resolver 127.0.0.11 valid=10s ipv6=off;
@@ -398,6 +426,72 @@ server {
 `
 }
 
+// ── Edge Nginx ───────────────────────────────────────────────────────────────
+
+// generateEdgeNginx emits the always-on front proxy config: it owns 80/443+TLS
+// and blindly forwards everything to the active color ($active, set by the
+// separately-mounted active.inc). Switching colors = rewrite active.inc and
+// `+"`nginx -s reload`"+` — no restart, no config regeneration.
+//
+// active.inc is deliberately named *.inc (not *.conf) so nginx's default
+// `+"`include /etc/nginx/conf.d/*.conf`"+` does NOT load it at http scope; it is
+// pulled in only by the explicit include inside the server block below.
+func generateEdgeNginx(p paths) string {
+	return `# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
+# Blue/green edge proxy: TLS terminator on 80/443, forwards to the active color.
+
+# Websocket upgrade passthrough (Echo). '' → keep-alive close for normal requests.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Redirect public-host HTTP → HTTPS (external access with TLS cert)
+server {
+    listen 80;
+    server_name nucleus.olm-altair.ts.net;
+    return 301 https://nucleus.olm-altair.ts.net$request_uri;
+}
+
+# Main server — HTTPS for the public host, plain HTTP for localhost / IP access
+server {
+    listen 80 default_server;
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate /etc/ssl/certs/nucleus.crt;
+    ssl_certificate_key /etc/ssl/private/nucleus.key;
+
+    # Docker DNS so the color alias re-resolves per request — a recreated color
+    # container is picked up without restarting the edge.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # Blind pass-through: no body-size limit, no request buffering, websocket-ready.
+    client_max_body_size 0;
+    proxy_request_buffering off;
+
+    # set $active web-blue|web-green — the ONLY thing a traffic switch changes.
+    include /etc/nginx/conf.d/active.inc;
+
+    location / {
+        proxy_pass http://$active;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        # Active color unreachable → the Anchor degraded-mode page.
+        error_page 502 503 504 = @anchor_fallback;
+    }
+` + fallbackLocation() + `
+}
+`
+}
+
 // ── Prod Compose ─────────────────────────────────────────────────────────────
 
 func labelsBlock(role, app string, depends []string) string {
@@ -423,7 +517,12 @@ func relFromRoot(p paths, dir string) string {
 	return "../" + rel
 }
 
-func prodServerBlock(p paths, m *Manifest) string {
+// stackServerBlock emits one app/auth/widget server for the color stack. It is
+// the old prodServerBlock with two blue/green changes: (1) depends_on against
+// stateful data services is dropped — mongo/redis/minio live in the always-on
+// nucleus-data stack, reached over the shared external network, not within this
+// project; (2) the service is attached to the internal + data networks.
+func stackServerBlock(p paths, m *Manifest) string {
 	s := m.Server
 	relDir := relFromRoot(p, m.dir)
 	buildContext := s.Context
@@ -451,8 +550,12 @@ func prodServerBlock(p paths, m *Manifest) string {
 		volumeLines = append(volumeLines, "      - "+v)
 	}
 
+	// Only in-project dependencies belong here; data services are external.
 	var dependsLines []string
 	for _, d := range s.Depends {
+		if dataServices[d] {
+			continue
+		}
 		dependsLines = append(dependsLines, fmt.Sprintf("      %s:\n        condition: service_healthy", d))
 	}
 
@@ -474,6 +577,7 @@ func prodServerBlock(p paths, m *Manifest) string {
 	if len(dependsLines) > 0 {
 		b.WriteString(fmt.Sprintf("    depends_on:\n%s\n", strings.Join(dependsLines, "\n")))
 	}
+	b.WriteString("    networks:\n      - internal\n      - data\n")
 	b.WriteString("    healthcheck:\n")
 	b.WriteString(fmt.Sprintf("      test: [\"CMD\", \"node\", \"-e\", \"require('http').get('%s',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\"]\n", healthURL))
 	b.WriteString("      interval: 5s\n")
@@ -483,144 +587,50 @@ func prodServerBlock(p paths, m *Manifest) string {
 	return b.String()
 }
 
-func generateProdCompose(p paths, apps, widgets []*Manifest) string {
-	for _, m := range widgets {
-		m.role = "widget-server"
-	}
+// backingNeeds reports which stateful services any server depends on. Shared by
+// the data-stack generator (which services to run) and kept in one place.
+func backingNeeds(p paths, apps, widgets []*Manifest) (mongo, minio, redis bool) {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
-
-	var withServers []*Manifest
 	for _, m := range all {
-		if m.Server != nil {
-			withServers = append(withServers, m)
-		}
-	}
-
-	dependsOn := func(svc string) bool {
-		for _, m := range withServers {
-			for _, d := range m.Server.Depends {
-				if d == svc {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	needsMongo := dependsOn("mongo")
-	needsMinio := dependsOn("minio")
-	needsRedis := dependsOn("redis")
-
-	// Nginx read-only mounts for each standalone app's pre-built dist.
-	nginxDistVols := []string{
-		"      - ../hub/dist:/srv/hub:ro",
-		"      - ../hub/public:/srv/static:ro",
-		"      - ../state:/srv/state:ro", // maintenance.json flag (infra/maintenance)
-	}
-	for _, m := range all {
-		if m.Route == "" {
+		if m.Server == nil {
 			continue
 		}
-		rel := relFromRoot(p, m.dir)
-		dir := strings.TrimPrefix(m.Route, "/")
-		nginxDistVols = append(nginxDistVols, fmt.Sprintf("      - %s/client/dist:/srv/%s:ro", rel, dir))
-	}
-
-	nginxDependsLines := []string{
-		"      registry:\n        condition: service_started",
-		"      plugin-runtime:\n        condition: service_started",
-	}
-	for _, m := range withServers {
-		nginxDependsLines = append(nginxDependsLines, fmt.Sprintf("      %s:\n        condition: service_healthy", m.Server.Service))
-	}
-
-	// Named volumes — insertion-ordered set (mongo, minio, redis, then declared).
-	var namedVols []string
-	seenVol := map[string]bool{}
-	addVol := func(v string) {
-		if !seenVol[v] {
-			seenVol[v] = true
-			namedVols = append(namedVols, v)
+		for _, d := range m.Server.Depends {
+			switch d {
+			case "mongo":
+				mongo = true
+			case "minio":
+				minio = true
+			case "redis":
+				redis = true
+			}
 		}
 	}
-	if needsMongo {
-		addVol("mongo_data")
-	}
-	if needsMinio {
-		addVol("minio_data")
-	}
-	if needsRedis {
-		addVol("redis_data")
-	}
-	for _, m := range withServers {
-		for _, v := range m.Server.NamedVolumes {
-			addVol(strings.Split(v, ":")[0])
-		}
-	}
+	return
+}
 
-	var serverBlocks []string
-	for _, m := range withServers {
-		serverBlocks = append(serverBlocks, prodServerBlock(p, m))
-	}
+// ── Data compose (always-on, shared by both colors) ──────────────────────────
+
+// generateDataCompose emits the stateful backing stack. It runs once and stays
+// up across deploys:
+//
+//	docker compose -p nucleus-data -f docker-compose.data.yml up -d
+//
+// Volumes are pinned to the original nucleus_* names so an existing install's
+// data is reused verbatim (no migration). Services attach to the external
+// dataNet under their plain service names, which is how color servers reach them.
+func generateDataCompose(p paths, apps, widgets []*Manifest) string {
+	needsMongo, needsMinio, needsRedis := backingNeeds(p, apps, widgets)
 
 	var out strings.Builder
 	out.WriteString(`# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
-# Production stack: nginx serves pre-built static files, servers run node index.js
-name: nucleus
+# Always-on shared data stack (mongo/redis/minio). Volumes are pinned to the
+# original nucleus_* names so existing data is reused. Bring up with:
+#   docker compose -p nucleus-data -f docker-compose.data.yml up -d
+name: nucleus-data
 
 services:
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
 `)
-	out.WriteString(labelsBlock("proxy", "", nil))
-	out.WriteString(`    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-`)
-	out.WriteString(strings.Join(nginxDistVols, "\n"))
-	out.WriteString(`
-      - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
-      - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
-      - ./nginx/prod:/etc/nginx/conf.d:ro
-    depends_on:
-`)
-	out.WriteString(strings.Join(nginxDependsLines, "\n"))
-	out.WriteString(`
-
-  registry:
-    build:
-      context: ./registry
-    restart: unless-stopped
-`)
-	out.WriteString(labelsBlock("registry", "", nil))
-	out.WriteString(`    environment:
-      PORT: 4000
-      APPS_DIR: /apps
-      WIDGETS_DIR: /widgets
-      NUCLEUS_MANIFEST: /nucleus.json
-    volumes:
-      - ../apps:/apps:ro
-      - ../widgets:/widgets:ro
-      - ./nucleus.json:/nucleus.json:ro
-
-  plugin-runtime:
-    build:
-      context: ../plugin-runtime
-    restart: unless-stopped
-`)
-	out.WriteString(labelsBlock("plugin-runtime", "", nil))
-	out.WriteString(`    environment:
-      PORT: 4100
-      PLUGINS_DIR: /plugins
-      NUCLEUS_MANIFEST: /nucleus.json
-    volumes:
-      - ../plugins:/plugins:ro
-      - ./nucleus.json:/nucleus.json:ro
-
-`)
-	out.WriteString(strings.Join(serverBlocks, "\n"))
-	out.WriteString("\n")
 
 	if needsMongo {
 		out.WriteString(`  mongo:
@@ -628,7 +638,9 @@ services:
     restart: unless-stopped
 `)
 		out.WriteString(labelsBlock("database", "", nil))
-		out.WriteString(`    volumes:
+		out.WriteString(`    networks:
+      - data
+    volumes:
       - mongo_data:/data/db
     healthcheck:
       test: ["CMD-SHELL", "mongosh --eval 'db.adminCommand({ping:1})' --quiet 2>/dev/null || mongo --eval 'db.adminCommand({ping:1})' --quiet"]
@@ -647,6 +659,8 @@ services:
 `)
 		out.WriteString(labelsBlock("cache", "", nil))
 		out.WriteString(`    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    networks:
+      - data
     volumes:
       - redis_data:/data
     healthcheck:
@@ -666,7 +680,9 @@ services:
     restart: unless-stopped
 `)
 		out.WriteString(labelsBlock("object-store", "", nil))
-		out.WriteString(`    ports:
+		out.WriteString(`    networks:
+      - data
+    ports:
       - "9000:9000"
       - "9001:9001"
     environment:
@@ -685,13 +701,214 @@ services:
 `)
 	}
 
-	if len(namedVols) > 0 {
-		out.WriteString("volumes:\n")
-		for _, v := range namedVols {
-			out.WriteString(fmt.Sprintf("  %s:\n", v))
+	out.WriteString("networks:\n  data:\n    name: " + dataNet + "\n    external: true\n")
+
+	out.WriteString("\nvolumes:\n")
+	if needsMongo {
+		out.WriteString("  mongo_data:\n    name: nucleus_mongo_data\n")
+	}
+	if needsMinio {
+		out.WriteString("  minio_data:\n    name: nucleus_minio_data\n")
+	}
+	if needsRedis {
+		out.WriteString("  redis_data:\n    name: nucleus_redis_data\n")
+	}
+	return out.String()
+}
+
+// ── Stack compose (blue/green color template) ────────────────────────────────
+
+// generateStackCompose emits the color-swappable app stack: registry,
+// plugin-runtime, every app/auth/widget server, and a per-color web nginx. It is
+// parameterized by ${NUCLEUS_COLOR} (project suffix, network alias, snapshot
+// dir) and ${NUCLEUS_WEB_PORT} (debug host port), so ONE file runs both colors:
+//
+//	NUCLEUS_COLOR=green NUCLEUS_WEB_PORT=8082 \
+//	  docker compose -p nucleus-green -f docker-compose.stack.yml up -d --build
+//
+// 'web' serves this color's static snapshot (../.stacks/<color>/srv) and proxies
+// /api/* to this color's servers; the edge proxy forwards production traffic to
+// the web-<color> alias. Upload volumes are pinned to their original nucleus_*
+// names and shared across colors (user uploads persist across deploys).
+func generateStackCompose(p paths, apps, widgets []*Manifest) string {
+	for _, m := range widgets {
+		m.role = "widget-server"
+	}
+	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
+
+	var withServers []*Manifest
+	for _, m := range all {
+		if m.Server != nil {
+			withServers = append(withServers, m)
 		}
 	}
 
+	// web nginx static mounts: hub + per-route app dist, from this color's snapshot.
+	webVols := []string{
+		"      - ../.stacks/${NUCLEUS_COLOR}/srv/hub:/srv/hub:ro",
+		"      - ../.stacks/${NUCLEUS_COLOR}/srv/static:/srv/static:ro",
+		"      - ../state:/srv/state:ro", // maintenance.json flag (infra/maintenance)
+	}
+	for _, m := range all {
+		if m.Route == "" {
+			continue
+		}
+		dir := strings.TrimPrefix(m.Route, "/")
+		webVols = append(webVols, fmt.Sprintf("      - ../.stacks/${NUCLEUS_COLOR}/srv/%s:/srv/%s:ro", dir, dir))
+	}
+	webVols = append(webVols, "      - ./nginx/stack:/etc/nginx/conf.d:ro")
+
+	var webDepends []string
+	for _, m := range withServers {
+		webDepends = append(webDepends, fmt.Sprintf("      %s:\n        condition: service_healthy", m.Server.Service))
+	}
+
+	// Shared upload named volumes, pinned to the original nucleus_* names.
+	var uploadVols []string
+	seenVol := map[string]bool{}
+	for _, m := range withServers {
+		for _, v := range m.Server.NamedVolumes {
+			name := strings.Split(v, ":")[0]
+			if !seenVol[name] {
+				seenVol[name] = true
+				uploadVols = append(uploadVols, name)
+			}
+		}
+	}
+
+	var serverBlocks []string
+	for _, m := range withServers {
+		serverBlocks = append(serverBlocks, stackServerBlock(p, m))
+	}
+
+	var out strings.Builder
+	out.WriteString(`# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
+# Color-swappable app stack (blue/green). Run one color at a time with a distinct
+# project name and debug port, e.g.:
+#   NUCLEUS_COLOR=green NUCLEUS_WEB_PORT=8082 \
+#     docker compose -p nucleus-green -f docker-compose.stack.yml up -d --build
+name: nucleus-${NUCLEUS_COLOR}
+
+services:
+  web:
+    image: nginx:alpine
+    restart: unless-stopped
+`)
+	out.WriteString(labelsBlock("proxy", "", nil))
+	out.WriteString(`    ports:
+      - "${NUCLEUS_WEB_PORT}:80"
+    volumes:
+`)
+	out.WriteString(strings.Join(webVols, "\n"))
+	out.WriteString(`
+    depends_on:
+`)
+	out.WriteString(strings.Join(webDepends, "\n"))
+	out.WriteString(`
+    networks:
+      internal:
+      data:
+      edge:
+        aliases:
+          - web-${NUCLEUS_COLOR}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  registry:
+    build:
+      context: ./registry
+    restart: unless-stopped
+`)
+	out.WriteString(labelsBlock("registry", "", nil))
+	out.WriteString(`    environment:
+      PORT: 4000
+      APPS_DIR: /apps
+      WIDGETS_DIR: /widgets
+      NUCLEUS_MANIFEST: /nucleus.json
+    volumes:
+      - ../apps:/apps:ro
+      - ../widgets:/widgets:ro
+      - ./nucleus.json:/nucleus.json:ro
+    networks:
+      - internal
+
+  plugin-runtime:
+    build:
+      context: ../plugin-runtime
+    restart: unless-stopped
+`)
+	out.WriteString(labelsBlock("plugin-runtime", "", nil))
+	out.WriteString(`    environment:
+      PORT: 4100
+      PLUGINS_DIR: /plugins
+      NUCLEUS_MANIFEST: /nucleus.json
+    volumes:
+      - ../plugins:/plugins:ro
+      - ./nucleus.json:/nucleus.json:ro
+    networks:
+      - internal
+
+`)
+	out.WriteString(strings.Join(serverBlocks, "\n"))
+	out.WriteString("\n")
+
+	// Networks: internal (intra-color DNS: web ↔ servers), plus the two shared
+	// external networks (data → mongo/redis/minio, edge → the edge proxy).
+	out.WriteString("networks:\n")
+	out.WriteString("  internal:\n    driver: bridge\n")
+	out.WriteString("  data:\n    name: " + dataNet + "\n    external: true\n")
+	out.WriteString("  edge:\n    name: " + edgeNet + "\n    external: true\n")
+
+	if len(uploadVols) > 0 {
+		out.WriteString("\nvolumes:\n")
+		for _, v := range uploadVols {
+			out.WriteString(fmt.Sprintf("  %s:\n    name: nucleus_%s\n", v, v))
+		}
+	}
+
+	return out.String()
+}
+
+// ── Edge compose (always-on front proxy) ─────────────────────────────────────
+
+// generateEdgeCompose emits the always-on edge proxy: one nginx binding 80/443,
+// terminating TLS, and forwarding to the active color over edgeNet. Bring up with:
+//
+//	docker compose -p nucleus-edge -f docker-compose.edge.yml up -d
+//
+// The nginx/edge dir is mounted whole (not a single file) so a rewritten
+// active.inc is a new inode a running nginx sees on `nginx -s reload`.
+func generateEdgeCompose(p paths) string {
+	var out strings.Builder
+	out.WriteString(`# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
+# Always-on edge proxy: TLS on 80/443, forwards to the active color (web-<color>).
+name: nucleus-edge
+
+services:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+`)
+	out.WriteString(labelsBlock("edge", "", nil))
+	out.WriteString(`    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/ssl/certs/nucleus.crt:/etc/ssl/certs/nucleus.crt:ro
+      - /etc/ssl/private/nucleus.key:/etc/ssl/private/nucleus.key:ro
+      - ./nginx/edge:/etc/nginx/conf.d:ro
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: ` + edgeNet + `
+    external: true
+`)
 	return out.String()
 }
 

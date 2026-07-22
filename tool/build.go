@@ -82,83 +82,18 @@ func runBuild(p paths, args []string) error {
 	}
 
 	// ── Generate nginx + compose configs (cheap — always run) ──────────────────
+	// `nucleus build` prepares artifacts only: frontends compiled to their dist
+	// dirs and the blue/green nginx + compose configs regenerated. It does NOT
+	// touch Docker — deployment (per-color image build, health-gated switch) is
+	// owned by the shell orchestrator (infra/production), so a build never
+	// disturbs the running stack.
 	step("Generating infra configs")
 	if err := runGenerate(p); err != nil {
 		return err
 	}
 
-	// ── Deploy ─────────────────────────────────────────────────────────────────
-	if hasAVX() {
-		os.Setenv("MONGO_IMAGE", "mongo:7")
-		warn("AVX detected — using mongo:7")
-	} else {
-		os.Setenv("MONGO_IMAGE", "mongo:4.4")
-		warn("No AVX — falling back to mongo:4.4")
-	}
-
-	// ── Rebuild only images whose build context changed ─────────────────────────
-	// A blanket `up --build` re-walks every server context on each deploy (~10
-	// images), so a one-line frontend fix still paid the full image-build tax.
-	// Instead we fingerprint each service's build context (same scheme as the
-	// frontend units) and rebuild only the ones that actually changed; unchanged
-	// services are left to `up -d`, which recreates a container only when its
-	// image or compose config differs. `--force` rebuilds everything.
-	step("Checking which images need rebuilding")
-	svcs, err := buildableServices(p)
-	if err != nil {
-		return err
-	}
-	changed, fps, err := b.planDockerRebuilds(svcs)
-	if err != nil {
-		return err
-	}
-
-	if len(changed) > 0 {
-		if cfg.force {
-			warn("Rebuilding all images (forced)")
-		} else {
-			skip("Rebuilding changed images: " + strings.Join(changed, ", "))
-		}
-		build := exec.Command("docker", append([]string{"compose", "-f", "docker-compose.prod.yml", "build"}, changed...)...)
-		build.Dir = p.infra
-		build.Stdout, build.Stderr, build.Stdin = os.Stdout, os.Stderr, os.Stdin
-		if err := build.Run(); err != nil {
-			return fmt.Errorf("docker compose build failed: %w", err)
-		}
-	} else {
-		skip("All image build contexts unchanged — no rebuilds")
-	}
-
-	step("Starting production stack")
-	up := exec.Command("docker", "compose", "-f", "docker-compose.prod.yml", "up", "-d", "--remove-orphans")
-	up.Dir = p.infra
-	up.Stdout, up.Stderr, up.Stdin = os.Stdout, os.Stderr, os.Stdin
-	if err := up.Run(); err != nil {
-		return fmt.Errorf("docker compose up failed: %w", err)
-	}
-
-	// `up -d` recreates nginx only when its compose config changes, not when the
-	// regenerated config file changes — so reload it explicitly to pick up new
-	// routes. The nginx config dir is bind-mounted (not a single file), so a
-	// running nginx sees the new file and reload applies it. Best-effort: a
-	// just-recreated nginx already has the new config, and a reload is a no-op
-	// when nothing changed, so a failure here is benign.
-	reload := exec.Command("docker", "compose", "-f", "docker-compose.prod.yml", "exec", "-T", "nginx", "nginx", "-s", "reload")
-	reload.Dir = p.infra
-	_ = reload.Run()
-
-	// Persist context fingerprints only after a successful deploy, so a failed
-	// build/up re-attempts the same services next run rather than caching a miss.
-	for name, fp := range fps {
-		writeCache(filepath.Join(b.cacheDir, "docker-"+name+".ctx"), fp)
-	}
-
-	base := "https://" + nucleusHost(p)
-	fmt.Printf("\n%s%s✓ Production stack is up.%s\n", cBold, cGreen, cReset)
-	fmt.Printf("  Hub       → %s/\n", base)
-	fmt.Printf("  Watchlist → %s/watchlist/\n", base)
-	fmt.Printf("  Goals     → %s/goals/\n", base)
-	fmt.Printf("  Orbit     → %s/orbit/\n", base)
+	fmt.Printf("\n%s%s✓ Build complete — frontends and configs are ready.%s\n", cBold, cGreen, cReset)
+	fmt.Printf("  %sDeploy with infra/production (blue/green); rollback with infra/rollback.%s\n", cDim, cReset)
 	return nil
 }
 
@@ -394,78 +329,6 @@ func (b *builder) flush(out *bytes.Buffer, prefix string) {
 		fmt.Print(prefix)
 	}
 	io.Copy(os.Stdout, out)
-}
-
-// ── Docker image rebuild planning ────────────────────────────────────────────
-
-// dockerSvc is one compose service that is built from a local context (as
-// opposed to a pulled image like nginx/mongo/redis/minio).
-type dockerSvc struct {
-	name   string // compose service name (e.g. "orbit-server")
-	ctxDir string // absolute path to its build context
-}
-
-// buildableServices lists every prod service with a `build:` context, mirroring
-// what generateProdCompose emits: the registry, each app/widget server, and the
-// core servers. Contexts are resolved relative to infra/ (where the compose file
-// lives), matching the `../…` paths written into docker-compose.prod.yml. Kept
-// quiet (no discovery prints) since runGenerate already logged the app list.
-func buildableServices(p paths) ([]dockerSvc, error) {
-	apps, err := readManifests(p.apps, "nucleus.app.json")
-	if err != nil {
-		return nil, err
-	}
-	widgets, err := readManifests(p.widgets, "nucleus.widget.json")
-	if err != nil {
-		return nil, err
-	}
-	core := coreServices(p)
-
-	// Apps/widgets whose service name collides with a core service are dropped
-	// from compose (see discover), so never fingerprint or build them.
-	coreNames := map[string]bool{}
-	for _, c := range core {
-		if c.Server != nil {
-			coreNames[c.Server.Service] = true
-		}
-	}
-
-	svcs := []dockerSvc{{name: "registry", ctxDir: filepath.Join(p.infra, "registry")}}
-	add := func(list []*Manifest, skipCoreCollision bool) {
-		for _, m := range list {
-			if m.Server == nil || (skipCoreCollision && coreNames[m.Server.Service]) {
-				continue
-			}
-			ctx := m.Server.Context
-			if ctx == "" {
-				ctx = relFromRoot(p, m.dir) + "/server"
-			}
-			svcs = append(svcs, dockerSvc{name: m.Server.Service, ctxDir: filepath.Join(p.infra, ctx)})
-		}
-	}
-	add(apps, true)
-	add(widgets, true)
-	add(core, false)
-	return svcs, nil
-}
-
-// planDockerRebuilds fingerprints each service's build context and returns the
-// services whose fingerprint changed since the last successful deploy, plus the
-// freshly-computed fingerprints (persisted by the caller only on success).
-// `--force` marks every service as changed.
-func (b *builder) planDockerRebuilds(svcs []dockerSvc) (changed []string, fps map[string]string, err error) {
-	fps = make(map[string]string, len(svcs))
-	for _, s := range svcs {
-		fp, err := srcHash(b.p.root, []string{s.ctxDir})
-		if err != nil {
-			return nil, nil, err
-		}
-		fps[s.name] = fp
-		if b.cfg.force || readCache(filepath.Join(b.cacheDir, "docker-"+s.name+".ctx")) != fp {
-			changed = append(changed, s.name)
-		}
-	}
-	return changed, fps, nil
 }
 
 // ── Fingerprinting ───────────────────────────────────────────────────────────

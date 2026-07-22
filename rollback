@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# infra/rollback — one-command return to the previous color.
+#
+# Trivial because infra/production only *stops* the old color after switching —
+# it is never removed. So rollback just starts it again, waits for health,
+# repoints the edge, and stops the current (bad) color.
+#
+# Usage: infra/rollback
+set -euo pipefail
+
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=infra/lib/bluegreen.sh
+source "$INFRA/lib/bluegreen.sh"
+
+CUR="$(read_active)"
+[ -n "$CUR" ] || die "No active color recorded — nothing to roll back."
+PREV="$(other_color "$CUR")"
+
+log_stage "Rolling back: ${CUR} → ${PREV}"
+
+# The data + edge layers are always-on, but make sure (e.g. after a reboot).
+ensure_networks
+set_mongo_image
+ensure_data
+ensure_edge
+
+log_stage "Starting ${PREV^}..."
+# --build in case the previous color's images were pruned; normally a no-op.
+dc_stack "$PREV" up -d --build
+
+log_stage "Waiting for health..."
+if ! wait_stack_healthy "$PREV" || ! health_probe "$PREV"; then
+  log_err "The ${PREV} stack did not become healthy — rollback aborted."
+  log_err "${CUR} is still the active color."
+  exit 1
+fi
+
+log_stage "Switching traffic..."
+switch_traffic "$PREV"
+write_active "$PREV"
+
+log_stage "Stopping ${CUR^}..."
+stop_stack "$CUR"
+
+log_ok "Rollback complete. Now serving: ${PREV}"

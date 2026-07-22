@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# infra/bluegreen-init — ONE-TIME migration from the old single-project stack
+# (docker compose project "nucleus") to the blue/green layout.
+#
+# This is the only step that incurs downtime, and only once: the stateful data
+# services (mongo/redis/minio) must move from the old project to the shared
+# nucleus-data project, and the old nginx must release :80/:443 for the edge.
+# Everything that can be done while the old stack still serves (pull, build,
+# snapshot, pre-build the blue images) is done first to keep that window short.
+#
+# Data is preserved: the data + upload volumes are pinned to their original
+# nucleus_* names, so nucleus-data reuses the exact same volumes.
+#
+# Usage: infra/bluegreen-init
+set -euo pipefail
+
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=infra/lib/bluegreen.sh
+source "$INFRA/lib/bluegreen.sh"
+
+if [ -n "$(read_active)" ]; then
+  die "Already initialized (active color: $(read_active)). Use infra/production to deploy."
+fi
+
+log_stage "Blue/green one-time migration"
+log_warn "This performs a single brief downtime while data + proxy move to the new layout."
+
+# ── Prep everything possible while the old stack keeps serving ─────────────────
+ensure_networks
+set_mongo_image
+
+log_stage "Building images..."
+BIN="$("$INFRA/ensure-tool")"
+( cd "$INFRA" && "$BIN" build )
+
+log_info "Snapshotting frontend build into blue…"
+snapshot_dist blue
+
+log_info "Pre-building the blue color images…"
+dc_stack blue build
+
+# ── Cutover (downtime starts) ─────────────────────────────────────────────────
+# Remove the legacy monolithic containers (compose project == exactly "nucleus").
+# This frees the data volumes and :80/:443. Volumes are NOT touched by `rm -f`.
+legacy="$(docker ps -aq --filter 'label=com.docker.compose.project=nucleus' 2>/dev/null || true)"
+if [ -n "$legacy" ]; then
+  log_stage "Stopping legacy monolithic stack (brief downtime begins)…"
+  # shellcheck disable=SC2086
+  docker rm -f $legacy >/dev/null
+else
+  log_info "No legacy 'nucleus' project found — treating this as a fresh install."
+fi
+
+log_stage "Starting shared data stack…"
+ensure_data
+
+log_stage "Starting Blue..."
+dc_stack blue up -d --remove-orphans
+
+log_stage "Waiting for health..."
+if ! wait_stack_healthy blue || ! health_probe blue; then
+  log_err "Blue did not become healthy. The edge is not up yet, so nothing is serving."
+  log_err "Inspect:  cd $INFRA && NUCLEUS_COLOR=blue NUCLEUS_WEB_PORT=$(color_port blue) docker compose -p nucleus-blue logs"
+  exit 1
+fi
+
+log_stage "Starting edge proxy (binds :80/:443)…"
+ensure_edge
+
+log_stage "Switching traffic..."
+switch_traffic blue
+write_active blue
+
+log_ok "Migration complete. Now serving: blue"
+log_info "Next deploy will build & switch to green automatically:  infra/production"

@@ -55,9 +55,15 @@ stack (nginx serving pre-built static assets, servers running `node index.js`).
   changed. Fingerprints cache to `.build-cache/`.
 - `--force` / `-f` rebuilds every unit; `-j N` caps parallel build units.
 
+Deployment is **blue/green** and zero-downtime: `production` builds the inactive
+color alongside the running one, health-checks it, then flips the edge proxy to
+it in a single graceful reload. See `BLUEGREEN.md` for the full flow.
+
 ```sh
-./production            # incremental build + deploy
+./bluegreen-init        # ONE-TIME migration off the old single-project stack
+./production            # incremental build + health-gated switch to the other color
 ./production --force    # ignore the cache, rebuild everything
+./rollback              # one command back to the previous color
 ```
 
 ## The infra tool (`tool/`)
@@ -68,10 +74,13 @@ compiles it on demand in a `golang:1.23-alpine` container — **no host Go
 toolchain is required** — caching the binary by source hash. The compiled
 binary (`tool/nucleus`) is git-ignored.
 
-`nucleus generate` regenerates `nginx/nginx.conf`, `nginx/nginx.prod.conf`,
-`docker-compose.override.yml`, and `docker-compose.prod.yml` from the app/widget
-manifests. It runs automatically inside `dev`, `nucleus`, and `production`; you
-rarely call it directly.
+`nucleus generate` regenerates the nginx + compose configs from the app/widget
+manifests: `nginx/conf.d/default.conf` and `docker-compose.override.yml` (dev),
+plus the blue/green production set — `nginx/stack/default.conf` (per-color web),
+`nginx/edge/default.conf` (edge proxy), and `docker-compose.{data,stack,edge}.yml`.
+It runs automatically inside `dev`, `nucleus`, and `production`; you rarely call
+it directly. (The edge's `nginx/edge/active.inc`, which records the live color,
+is owned by the deploy/switch helpers and is only seeded, never overwritten.)
 
 ## Configuration
 
