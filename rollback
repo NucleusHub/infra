@@ -25,6 +25,9 @@ ensure_data
 ensure_edge
 
 log_stage "Starting ${PREV^}..."
+# A leaked docker-proxy on the previous color's port would strand the rollback,
+# which is the worst possible moment for it — clear it first.
+ensure_port_free "$PREV"
 # --build in case the previous color's images were pruned; normally a no-op.
 dc_stack "$PREV" up -d --build
 

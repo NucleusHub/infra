@@ -50,7 +50,8 @@ Everything is generated from the app/widget manifests by `nucleus generate`
 ```
 Pulling latest changes...     # infra/update (git pull all repos)
 Building images...            # nucleus build — frontends + regenerated configs
-Starting Green...             # target color up on its own project + debug port
+Starting Green...             # ensure_port_free, then target color up on its
+                              # own project + debug port
 Waiting for health...         # every service healthy + an end-to-end auth probe
 Switching traffic...          # rewrite edge active.inc + graceful reload
 Stopping Blue...              # old color stopped (NOT removed — kept for rollback)
@@ -62,6 +63,34 @@ startup + health checks. If the new color never becomes healthy, traffic is
 **not** switched: the old color keeps serving, a clear error is printed, and the
 failed color is left running for debugging (`curl localhost:8082`, or
 `docker compose -p nucleus-green logs`).
+
+### Leaked host-port proxies
+
+Docker can leave a `docker-proxy` process bound to a color's debug port (8081 /
+8082) after a container's network setup fails halfway: the container is gone but
+the proxy still holds the socket. The next deploy into that color then dies at
+`up` with
+
+```
+failed to bind host port 0.0.0.0:8082/tcp: address already in use
+```
+
+and `docker ps` shows nothing holding the port — the process table is the only
+place it is visible. Because that happens *before* the health checks, the deploy
+aborts with the old color still serving, which looks like a successful build that
+simply never went live.
+
+`ensure_port_free` (called by both `production` and `rollback`) handles this
+automatically. It only ever reaps a `docker-proxy` whose `-container-ip` matches
+no running container, and re-checks the process's `/proc/<pid>/cmdline` at kill
+time so a recycled PID cannot be hit. A port held by a **live** container is left
+alone: if it belongs to the color being deployed, compose replaces it as part of
+`up`; if it belongs to anything else, the deploy refuses to start and reports the
+holder instead of guessing.
+
+Signalling the proxy needs root (dockerd owns it). It uses `sudo -n` where that
+works, otherwise a `--pid=host` container — which grants nothing beyond what
+docker-group membership already does.
 
 ## Rollback
 

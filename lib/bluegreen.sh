@@ -85,6 +85,127 @@ set_mongo_image() {
   fi
 }
 
+# ── Stale host-port proxy reaper ──────────────────────────────────────────────
+# Docker leaks a `docker-proxy` process when a container's network setup fails
+# partway through: the proxy keeps the host port bound even though the container
+# it forwards to is gone. The next deploy into that color then dies at `up` with
+#
+#   failed to bind host port 0.0.0.0:8082/tcp: address already in use
+#
+# while `docker ps` shows nothing holding the port — the leaked proxy is only
+# visible in the process table. Under `set -e` that aborts the deploy before the
+# health checks and the traffic switch, silently leaving the old color serving.
+#
+# Docker's own port allocator is unaffected (that failure reads "port is already
+# allocated"); only the OS socket is stuck, so reaping the process is sufficient.
+#
+# Run a snippet as root on the host. dockerd runs as root, so the leaked proxy
+# can only be signalled as root, and the deploy user reaches root via sudo or —
+# on boxes where sudo needs a password, as ours does — via a --pid=host
+# container. Docker-group membership is already root-equivalent, so this grants
+# nothing that running the deploy at all does not.
+_as_host_root() { # <sh-snippet>
+  sudo -n true 2>/dev/null && { sudo -n sh -c "$1"; return; }
+  local img
+  for img in alpine:latest busybox:latest nginx:alpine; do
+    docker image inspect "$img" >/dev/null 2>&1 || continue
+    docker run --rm --pid=host --privileged --entrypoint sh "$img" -c "$1"
+    return
+  done
+  docker run --rm --pid=host --privileged --entrypoint sh alpine:latest -c "$1"
+}
+
+# Free a color's debug host port if — and only if — a leaked docker-proxy holds
+# it. Anything else keeping the port is left untouched and reported: this reaps a
+# known Docker bug, it does not bulldoze whatever is in the way.
+#
+# Three cases, and the middle one is easy to get wrong:
+#   no container owns the IP    → leaked; reap it
+#   owned by <own_project>      → the target color is already up; `compose up`
+#                                 replaces it itself, so this is NOT an error
+#   owned by anything else      → a real conflict; refuse and report
+reap_stale_port_proxy() { # <port> <own_project>
+  local port="$1" own="${2:-}"
+
+  # Fast path: nothing listening, nothing to do. This is every healthy deploy.
+  ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$" || return 0
+
+  # ip|compose-project|container-name for every running container, all networks.
+  local owners
+  owners="$(docker ps -q | xargs -r docker inspect --format \
+    '{{range .NetworkSettings.Networks}}{{.IPAddress}}|{{index $.Config.Labels "com.docker.compose.project"}}|{{$.Name}}
+{{end}}' 2>/dev/null | grep -v '^|')"
+
+  # Docker runs one proxy per address family, so each mapping shows up twice;
+  # report each container IP once but still reap every leaked pid.
+  local found=0 stale=0 ours=0 pid cip owner proj name reported=""
+  while read -r pid cip; do
+    [ -n "$pid" ] || continue
+    found=1
+    owner="$(printf '%s\n' "$owners" | grep -m1 "^${cip}|" || true)"
+    if [ -n "$owner" ]; then
+      case " $reported " in *" $cip "*) continue ;; esac
+      reported="$reported $cip"
+      proj="$(printf '%s' "$owner" | cut -d'|' -f2)"
+      name="$(printf '%s' "$owner" | cut -d'|' -f3 | sed 's|^/||')"
+      if [ -n "$own" ] && [ "$proj" = "$own" ]; then
+        # The color we are about to deploy is already running. Compose stops and
+        # replaces its own container, freeing the port as part of `up`.
+        log_info "Port $port is held by ${name} (this stack) — compose will replace it."
+        ours=1
+        continue
+      fi
+      log_warn "Port $port is held by ${name} (project ${proj:-none}), a live container — not touching it."
+      continue
+    fi
+    log_warn "Reaping leaked docker-proxy (pid $pid) holding port $port for $cip — no such container."
+    # Re-read the cmdline as root at kill time and require it to still match, so
+    # a PID recycled between the scan and the kill cannot be hit by mistake.
+    _as_host_root "
+      cmd=\$(tr '\\0' ' ' < /proc/$pid/cmdline 2>/dev/null)
+      case \"\$cmd\" in
+        *docker-proxy*'-host-port $port '*'-container-ip $cip '*) ;;
+        *) echo 'cmdline no longer matches — refusing to kill'; exit 1 ;;
+      esac
+      kill $pid 2>/dev/null
+      i=0; while [ -d /proc/$pid ] && [ \$i -lt 10 ]; do sleep 0.5; i=\$((i+1)); done
+      [ -d /proc/$pid ] && kill -9 $pid 2>/dev/null
+      sleep 0.5
+      [ -d /proc/$pid ] && exit 1
+      exit 0
+    " >/dev/null 2>&1 && stale=1 || log_warn "Could not reap pid $pid."
+  done < <(ps -eo pid=,args= \
+             | grep -E "docker-proxy .*-host-port ${port}( |\$)" \
+             | grep -v grep \
+             | sed -nE 's/^[[:space:]]*([0-9]+).*-container-ip ([0-9.]+).*/\1 \2/p')
+
+  # The port legitimately belonging to the stack we are about to recreate is not
+  # a problem — say so and let compose get on with it.
+  if [ "$ours" = 1 ]; then return 0; fi
+
+  # Settle, then confirm the port actually came free.
+  if [ "$stale" = 1 ]; then sleep 1; fi
+  if ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}\$"; then
+    if [ "$found" = 0 ]; then
+      log_warn "Port $port is in use by something that is not a docker-proxy:"
+      ss -ltnp 2>/dev/null | grep -E "[:.]${port}[[:space:]]" | sed 's/^/    /' || true
+    fi
+    return 1
+  fi
+  log_info "Port $port is free."
+  return 0
+}
+
+# Preflight a color's debug port before starting it. Fails loudly with the
+# context needed to act, rather than letting `up` die on a raw Docker error.
+ensure_port_free() { # <color>
+  local color="$1" port; port="$(color_port "$color")"
+  reap_stale_port_proxy "$port" "nucleus-${color}" && return 0
+  die "Debug port $port for the ${color} stack is still in use (see above) — refusing to start ${color}.
+    Nothing was changed; the active color is still serving.
+    Identify the holder with:  sudo ss -ltnp | grep :$port"
+}
+
 # ── Bootstrap (idempotent; safe to call every deploy) ─────────────────────────
 ensure_networks() {
   local n

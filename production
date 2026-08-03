@@ -59,6 +59,9 @@ snapshot_dist "$TARGET"
 
 # ── 5. Start the target color alongside the live one (own project + debug port) ─
 log_stage "Starting ${TARGET^}..."
+# Clear a leaked docker-proxy off this color's debug port first — otherwise `up`
+# dies with "address already in use" and takes the whole deploy with it.
+ensure_port_free "$TARGET"
 dc_stack "$TARGET" up -d --build --remove-orphans
 
 # ── 6. Wait until the whole target color is healthy ───────────────────────────
