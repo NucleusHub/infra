@@ -35,6 +35,7 @@ esac
 tool_hash="$(
   { for f in "$TOOL_DIR"/*.go; do case "$f" in (*_test.go) ;; (*) cat "$f" ;; esac; done
     cat "$TOOL_DIR/go.mod" "$TOOL_DIR"/*.html
+    find "$TOOL_DIR/ui" -type f 2>/dev/null | LC_ALL=C sort | xargs cat 2>/dev/null
     printf '%s %s' "$GOOS" "$GOARCH"
   } 2>/dev/null | sha1sum | cut -d' ' -f1
 )"

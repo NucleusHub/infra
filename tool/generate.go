@@ -1014,7 +1014,9 @@ func findHubLibraries(p paths) ([]hubLib, error) {
 			continue
 		}
 		clientDir := filepath.Join(appDir, "client")
-		if isIgnored(appDir) || !exists(clientDir) || exists(filepath.Join(clientDir, "vite.config.js")) {
+		// No manifest, no app: an empty apps/<id>/client skeleton (Docker recreates
+		// a missing bind-mount source) must not resurrect a removed hub library.
+		if isIgnored(appDir) || !isApp(appDir) || !exists(clientDir) || exists(filepath.Join(clientDir, "vite.config.js")) {
 			continue
 		}
 		libs = append(libs, hubLib{id: name, rel: "../apps/" + name + "/client"})
@@ -1041,6 +1043,9 @@ func pluginRuntimeService(extra string, mods modules) string {
 // generateOverride emits the dev compose override: includes for every module
 // that ships a docker-compose.app.yml, plus everything optional — hub library,
 // widget and plugin mounts, and the plugin runtime — only when installed.
+// isApp reports whether dir is an installed app — it has a manifest.
+func isApp(dir string) bool { return exists(filepath.Join(dir, "nucleus.app.json")) }
+
 // syncHubLibLinks points hub/libs/<id> at each installed hub library's client/
 // and prunes links to libraries that are gone, so adding or removing an app is
 // all it takes. hub/libs is gitignored in the hub repo; only symlinks are ever

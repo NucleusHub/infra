@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Marketplace · Nucleus</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Nucleus Modules — the installer UI served by `nucleus modules ui`.
+
+   Visually a port of the nucleus-web marketplace (tokens, backdrop, glass,
+   toolbar and card anatomy), without the site's header and footer. Fonts are
+   the site's own self-hosted files, embedded in the binary: no third-party
+   requests, which fits a tool that runs next to your infrastructure.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@font-face { font-family: 'Instrument Sans'; src: url('/fonts/instrument-sans-latin.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: 'Inter'; src: url('/fonts/inter-latin.woff2') format('woff2'); font-weight: 300 600; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2'); font-weight: 400 500; font-display: swap; }
+
+:root {
+	color-scheme: dark;
+
+	--bg-void: #050309;
+	--bg-page: #08060F;
+	--bg-raise: #0D0A18;
+	--bg-solid: #120E20;
+	--bg-inset: #030208;
+
+	--ink-hi: #F6F4FC;
+	--ink: rgba(236, 233, 248, 0.92);
+	--ink-2: rgba(204, 199, 226, 0.72);
+	--ink-3: rgba(178, 171, 206, 0.64);
+	--ink-4: rgba(156, 148, 188, 0.42);
+
+	--accent: #A855F7;
+	--accent-soft: #C084FC;
+	--accent-violet: #7C3AED;
+	--accent-indigo: #6366F1;
+	--accent-ink: #DCC9FE;
+	--cool: #818CF8;
+	--halo-strong: rgba(168, 85, 247, 0.42);
+	--halo: rgba(168, 85, 247, 0.22);
+	--halo-faint: rgba(168, 85, 247, 0.10);
+
+	--live: #6EE7B7;
+	--live-soft: rgba(110, 231, 183, 0.12);
+	--wait: #FCD34D;
+	--wait-soft: rgba(252, 211, 77, 0.12);
+	--danger: #FB7185;
+	--danger-soft: rgba(251, 113, 133, 0.12);
+	--danger-ink: #FFD7DE;
+
+	--line: rgba(255, 255, 255, 0.08);
+	--line-soft: rgba(255, 255, 255, 0.05);
+	--line-strong: rgba(255, 255, 255, 0.14);
+
+	--glass-tint-top: rgba(255, 255, 255, 0.075);
+	--glass-tint-bottom: rgba(168, 85, 247, 0.022);
+	--glass-blur: 26px;
+	--glass-saturate: 170%;
+
+	--shadow-sm: 0 2px 10px -4px rgba(0, 0, 0, 0.6);
+	--shadow-md: 0 18px 40px -22px rgba(0, 0, 0, 0.8);
+	--shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.9);
+
+	--r-xs: 8px;
+	--r-sm: 12px;
+	--r-md: 18px;
+	--r-lg: 26px;
+	--r-pill: 999px;
+
+	--font-display: 'Instrument Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+	--fs-h1: clamp(2.5rem, 1.4rem + 4.4vw, 5.2rem);
+	--fs-h4: clamp(1.05rem, 0.98rem + 0.35vw, 1.25rem);
+	--fs-lead: clamp(1.05rem, 0.98rem + 0.42vw, 1.3rem);
+	--fs-sm: 0.9125rem;
+	--fs-xs: 0.8125rem;
+	--fs-mono: 0.7rem;
+	--tracking-display: -0.035em;
+	--tracking-body: -0.006em;
+	--tracking-mono: 0.16em;
+
+	--gutter: clamp(20px, 5vw, 52px);
+	--container-wide: 1360px;
+	--s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px;
+
+	--ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-std: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-soft: cubic-bezier(0.45, 0, 0.15, 1);
+	--dur-fast: 0.16s;
+	--dur: 0.28s;
+	--dur-slow: 0.55s;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+html { overflow-x: clip; -webkit-text-size-adjust: 100%; }
+body {
+	min-height: 100svh;
+	background-color: var(--bg-page);
+	color: var(--ink);
+	font-family: var(--font-body);
+	font-size: 1rem;
+	line-height: 1.62;
+	letter-spacing: var(--tracking-body);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	overflow-x: clip;
+	padding-bottom: 180px;
+}
+button, input, select { font: inherit; color: inherit; background: none; border: none; }
+button { cursor: pointer; }
+img, svg, canvas { display: block; max-width: 100%; }
+ul { list-style: none; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.2; letter-spacing: -0.022em; color: var(--ink-hi); text-wrap: balance; }
+::selection { background: rgba(168, 85, 247, 0.32); color: var(--ink-hi); }
+:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 3px; border-radius: var(--r-xs); }
+:focus:not(:focus-visible) { outline: none; }
+@supports selector(::-webkit-scrollbar) {
+	::-webkit-scrollbar { width: 11px; height: 11px; }
+	::-webkit-scrollbar-track { background: var(--bg-void); }
+	::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.09); border: 3px solid var(--bg-void); border-radius: var(--r-pill); }
+}
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-3); }
+.container { width: 100%; max-width: var(--container-wide); margin-inline: auto; padding-inline: var(--gutter); position: relative; z-index: 1; }
+
+/* ── Backdrop — the site's room: base, lights, orbits, dust, grid, grain ─── */
+.backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: var(--bg-page); }
+.backdrop__base {
+	position: absolute; inset: 0;
+	background:
+		radial-gradient(120% 80% at 50% -10%, rgba(38, 23, 74, 0.82) 0%, transparent 62%),
+		linear-gradient(180deg, #0A0714 0%, #08060F 42%, #050309 100%);
+}
+.backdrop__light { position: absolute; border-radius: 50%; will-change: transform; }
+.backdrop__light--a {
+	top: -22vh; left: -8vw; width: 72vw; height: 72vw; max-width: 1040px; max-height: 1040px;
+	background: radial-gradient(circle, rgba(139, 72, 246, 0.26) 0%, rgba(124, 58, 237, 0.17) 24%, rgba(88, 28, 190, 0.08) 48%, rgba(70, 22, 155, 0.028) 68%, transparent 84%);
+	animation: drift-a 38s ease-in-out infinite;
+}
+.backdrop__light--b {
+	right: -14vw; bottom: -26vh; width: 68vw; height: 68vw; max-width: 960px; max-height: 960px;
+	background: radial-gradient(circle, rgba(110, 114, 244, 0.21) 0%, rgba(88, 88, 214, 0.13) 26%, rgba(49, 46, 129, 0.07) 50%, rgba(40, 38, 110, 0.024) 70%, transparent 86%);
+	animation: drift-b 46s ease-in-out infinite;
+}
+.backdrop__light--c {
+	top: 46%; left: 22%; width: 42vw; height: 42vw; max-width: 580px; max-height: 580px;
+	background: radial-gradient(circle, rgba(74, 141, 250, 0.16) 0%, rgba(48, 114, 240, 0.10) 26%, rgba(37, 99, 235, 0.04) 50%, rgba(30, 80, 200, 0.014) 70%, transparent 86%);
+	animation: drift-c 52s ease-in-out infinite;
+}
+.backdrop__orbit { position: absolute; border-radius: 50%; }
+.backdrop__orbit--far {
+	top: 2vh; left: 44%; width: 176vw; height: 108vw;
+	border: 1px solid rgba(129, 140, 248, 0.34);
+	transform: translate(-50%, -50%) rotate(-13deg);
+	-webkit-mask-image: conic-gradient(from 150deg, #000 0deg, rgba(0, 0, 0, 0.62) 44deg, transparent 126deg, transparent 236deg, rgba(0, 0, 0, 0.55) 318deg, #000 360deg);
+	mask-image: conic-gradient(from 150deg, #000 0deg, rgba(0, 0, 0, 0.62) 44deg, transparent 126deg, transparent 236deg, rgba(0, 0, 0, 0.55) 318deg, #000 360deg);
+}
+.backdrop__orbit--near {
+	top: 9vh; left: 41%; width: 118vw; height: 72vw;
+	border: 1px solid rgba(168, 85, 247, 0.42);
+	transform: translate(-50%, -50%) rotate(-19deg);
+	-webkit-mask-image: conic-gradient(from 24deg, transparent 0deg, rgba(0, 0, 0, 0.7) 62deg, #000 118deg, rgba(0, 0, 0, 0.45) 196deg, transparent 262deg, transparent 360deg);
+	mask-image: conic-gradient(from 24deg, transparent 0deg, rgba(0, 0, 0, 0.7) 62deg, #000 118deg, rgba(0, 0, 0, 0.45) 196deg, transparent 262deg, transparent 360deg);
+}
+.backdrop__dust {
+	position: absolute; left: 0; right: 0;
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 22%, rgba(0, 0, 0, 0.28) 50%, rgba(0, 0, 0, 0.55) 78%, #000 100%);
+	mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.55) 22%, rgba(0, 0, 0, 0.28) 50%, rgba(0, 0, 0, 0.55) 78%, #000 100%);
+}
+.backdrop__dust--far {
+	top: -45%; bottom: -45%; background-size: 560px 560px;
+	background-image:
+		radial-gradient(1.0px 1.0px at 226px 412px, rgba(214, 204, 255, 0.24) 0%, transparent 100%),
+		radial-gradient(1.1px 1.1px at 104px 513px, rgba(214, 204, 255, 0.21) 0%, transparent 100%),
+		radial-gradient(1.2px 1.2px at 492px 425px, rgba(214, 204, 255, 0.19) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 415px 279px, rgba(214, 204, 255, 0.24) 0%, transparent 100%),
+		radial-gradient(1.4px 1.4px at 41px 412px, rgba(214, 204, 255, 0.14) 0%, transparent 100%),
+		radial-gradient(1.2px 1.2px at 94px 275px, rgba(214, 204, 255, 0.20) 0%, transparent 100%),
+		radial-gradient(1.2px 1.2px at 189px 207px, rgba(214, 204, 255, 0.20) 0%, transparent 100%),
+		radial-gradient(1.3px 1.3px at 503px 193px, rgba(214, 204, 255, 0.16) 0%, transparent 100%),
+		radial-gradient(1.1px 1.1px at 278px 14px, rgba(214, 204, 255, 0.21) 0%, transparent 100%),
+		radial-gradient(1.1px 1.1px at 297px 113px, rgba(214, 204, 255, 0.21) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 411px 72px, rgba(214, 204, 255, 0.24) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 438px 509px, rgba(214, 204, 255, 0.26) 0%, transparent 100%),
+		radial-gradient(1.3px 1.3px at 137px 72px, rgba(214, 204, 255, 0.16) 0%, transparent 100%),
+		radial-gradient(1.1px 1.1px at 378px 370px, rgba(214, 204, 255, 0.22) 0%, transparent 100%),
+		radial-gradient(1.2px 1.2px at 220px 310px, rgba(214, 204, 255, 0.18) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 318px 280px, rgba(214, 204, 255, 0.24) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 555px 541px, rgba(214, 204, 255, 0.25) 0%, transparent 100%),
+		radial-gradient(1.2px 1.2px at 344px 508px, rgba(214, 204, 255, 0.19) 0%, transparent 100%),
+		radial-gradient(1.1px 1.1px at 51px 191px, rgba(214, 204, 255, 0.22) 0%, transparent 100%),
+		radial-gradient(1.4px 1.4px at 526px 69px, rgba(214, 204, 255, 0.14) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 374px 183px, rgba(214, 204, 255, 0.26) 0%, transparent 100%),
+		radial-gradient(1.0px 1.0px at 535px 308px, rgba(214, 204, 255, 0.24) 0%, transparent 100%);
+}
+.backdrop__dust--near {
+	top: -70%; bottom: -70%; background-size: 380px 380px;
+	background-image:
+		radial-gradient(1.8px 1.8px at 134px 19px, rgba(232, 226, 255, 0.23) 0%, transparent 100%),
+		radial-gradient(1.7px 1.7px at 108px 308px, rgba(232, 226, 255, 0.25) 0%, transparent 100%),
+		radial-gradient(1.7px 1.7px at 296px 7px, rgba(232, 226, 255, 0.26) 0%, transparent 100%),
+		radial-gradient(1.6px 1.6px at 327px 173px, rgba(232, 226, 255, 0.29) 0%, transparent 100%),
+		radial-gradient(1.6px 1.6px at 277px 269px, rgba(232, 226, 255, 0.27) 0%, transparent 100%),
+		radial-gradient(1.3px 1.3px at 56px 105px, rgba(232, 226, 255, 0.38) 0%, transparent 100%),
+		radial-gradient(1.8px 1.8px at 13px 337px, rgba(232, 226, 255, 0.23) 0%, transparent 100%),
+		radial-gradient(1.6px 1.6px at 17px 239px, rgba(232, 226, 255, 0.29) 0%, transparent 100%),
+		radial-gradient(1.8px 1.8px at 221px 169px, rgba(232, 226, 255, 0.22) 0%, transparent 100%),
+		radial-gradient(1.4px 1.4px at 222px 79px, rgba(232, 226, 255, 0.33) 0%, transparent 100%),
+		radial-gradient(1.6px 1.6px at 211px 346px, rgba(232, 226, 255, 0.28) 0%, transparent 100%);
+}
+.backdrop__grid {
+	position: absolute; inset: 0; overflow: hidden;
+	-webkit-mask-image: radial-gradient(90% 65% at 50% 32%, #000 0%, transparent 78%);
+	mask-image: radial-gradient(90% 65% at 50% 32%, #000 0%, transparent 78%);
+	background-image:
+		linear-gradient(to right, rgba(255, 255, 255, 0.032) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+	background-size: 88px 88px;
+}
+.backdrop__grain {
+	position: absolute; inset: 0; opacity: 0.30; mix-blend-mode: overlay;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
+}
+.backdrop__vignette { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 40%, transparent 42%, rgba(4, 2, 10, 0.58) 100%); }
+@keyframes drift-a { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(5%, 6%, 0); } }
+@keyframes drift-b { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(-6%, -5%, 0); } }
+@keyframes drift-c { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(-4%, 5%, 0); } }
+@media (max-width: 720px) {
+	.backdrop__grid { background-size: 64px 64px; }
+	.backdrop__orbit--far { width: 250vw; height: 168vw; }
+	.backdrop__orbit--near { display: none; }
+	.backdrop__dust--near { background-size: 300px 300px; }
+}
+
+/* ── Glass — body, refracting rim, inner bounce, pointer sheen ───────────── */
+.glass {
+	--glass-radius: var(--r-lg);
+	--sheen: 0;
+	position: relative;
+	isolation: isolate;
+	border-radius: var(--glass-radius);
+	background: linear-gradient(177deg, var(--glass-tint-top) 0%, var(--glass-tint-bottom) 42%, rgba(255, 255, 255, 0.035) 100%);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+	backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+	box-shadow: inset 0 -22px 38px -34px rgba(255, 255, 255, 0.30), var(--shadow-md);
+}
+.glass::before {
+	content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit; padding: 1px; pointer-events: none;
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.50) 0%, rgba(255, 255, 255, 0.10) 22%, rgba(255, 255, 255, 0.02) 52%, rgba(192, 132, 252, 0.26) 76%, rgba(129, 140, 248, 0.20) 100%);
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+	mask-composite: exclude;
+}
+.glass::after {
+	content: ''; position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none;
+	background: radial-gradient(46% 62% at var(--gx, 50%) var(--gy, 0%), rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04) 44%, transparent 72%);
+	opacity: var(--sheen);
+	transition: opacity var(--dur-slow) var(--ease);
+}
+.glass > * { position: relative; z-index: 2; }
+.glass--deep {
+	--glass-blur: 30px;
+	background: linear-gradient(177deg, rgba(255, 255, 255, 0.06), rgba(168, 85, 247, 0.02)), rgba(12, 9, 22, 0.78);
+	box-shadow: inset 0 -20px 34px -34px rgba(255, 255, 255, 0.22), var(--shadow-lg);
+}
+.glass--interactive { transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.glass--interactive:hover, .glass--interactive:focus-within {
+	--sheen: 1;
+	transform: translateY(-3px);
+	box-shadow: inset 0 -22px 38px -34px rgba(255, 255, 255, 0.34), var(--shadow-lg), 0 0 60px -34px var(--halo-strong);
+}
+
+/* ── Buttons & chips ──────────────────────────────────────────────────────── */
+.btn {
+	position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 0.55em;
+	border-radius: var(--r-pill); font-family: var(--font-display); font-weight: 500; letter-spacing: -0.012em; white-space: nowrap;
+	padding: 0.5rem 0.95rem; font-size: var(--fs-xs);
+	transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background-color var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.btn--md { padding: 0.72rem 1.35rem; font-size: 0.95rem; }
+.btn:disabled { opacity: 0.45; pointer-events: none; }
+.btn--primary {
+	background: linear-gradient(180deg, #ffffff 0%, #e4eaf6 100%); color: #080a12;
+	box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 -1px 0 rgba(0, 0, 0, 0.12) inset, 0 14px 34px -16px rgba(192, 132, 252, 0.55), var(--shadow-md);
+}
+.btn--primary:hover { transform: translateY(-2px); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 -1px 0 rgba(0, 0, 0, 0.14) inset, 0 22px 46px -18px rgba(192, 132, 252, 0.7), var(--shadow-lg); }
+.btn--glass {
+	color: var(--ink-hi);
+	background: linear-gradient(177deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.02));
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18), var(--shadow-sm);
+}
+.btn--glass:hover { transform: translateY(-2px); background: linear-gradient(177deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 0 50px -30px var(--halo-strong); }
+.btn--danger { color: var(--danger-ink); background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.3); }
+.btn--danger:hover { transform: translateY(-2px); background: rgba(251, 113, 133, 0.2); }
+.btn--queued { color: var(--accent-ink); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.4); }
+
+.chip {
+	display: inline-flex; align-items: center; gap: 0.45em; padding: 0.5rem 0.9rem; border-radius: var(--r-pill);
+	font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap;
+	color: var(--ink-2); background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--line-soft);
+	transition: color var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.chip:hover:not(:disabled) { color: var(--ink-hi); background: rgba(255, 255, 255, 0.09); }
+.chip--danger { color: var(--danger-ink); }
+.chip--danger:hover:not(:disabled) { color: #fff; background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.3); }
+.glyph { flex: none; overflow: visible; }
+
+/* ── Intro (the page's own header) ───────────────────────────────────────── */
+.intro { padding-top: clamp(72px, 12vh, 140px); padding-bottom: clamp(40px, 5vw, 64px); }
+.intro__top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-8); }
+.intro__eyebrow { display: inline-flex; align-items: center; gap: 0.65rem; margin: 0 0 var(--s-5); }
+.intro__tick { width: 22px; height: 1px; background: linear-gradient(90deg, var(--accent), transparent); }
+.intro__title { font-size: var(--fs-h1); line-height: 1.14; letter-spacing: var(--tracking-display); max-width: 18ch; margin-bottom: var(--s-5); }
+.intro__lead { max-width: 62ch; font-size: var(--fs-lead); line-height: 1.58; color: var(--ink-2); font-weight: 350; }
+.intro__lead code { font-family: var(--font-mono); font-size: 0.86em; color: var(--accent-ink); }
+.account-bar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--s-2); padding-bottom: 0.2rem; }
+
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+.toolbar { display: grid; gap: var(--s-4); grid-template-columns: minmax(220px, 1fr) auto; grid-template-areas: 'search extra' 'kinds kinds'; align-items: center; }
+.toolbar__search { position: relative; grid-area: search; }
+.toolbar__search .glyph { position: absolute; top: 50%; left: 0.9rem; color: var(--ink-4); transform: translateY(-50%); pointer-events: none; }
+.input {
+	width: 100%; padding: 0.68rem 0.85rem 0.68rem 2.6rem; border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-hi);
+	background: rgba(255, 255, 255, 0.045); box-shadow: inset 0 0 0 1px var(--line);
+	transition: box-shadow var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std); -webkit-appearance: none; appearance: none;
+}
+.input::placeholder { color: var(--ink-4); }
+.input:hover { background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.input:focus-visible { outline: none; background: rgba(255, 255, 255, 0.07); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.55), 0 0 0 3px rgba(168, 85, 247, 0.18); }
+.input::-webkit-search-cancel-button { filter: invert(1) opacity(0.4); cursor: pointer; }
+.toolbar__extra { grid-area: extra; display: flex; gap: var(--s-2); }
+.toolbar__kinds { display: flex; flex-wrap: wrap; gap: var(--s-2); grid-area: kinds; }
+.kind {
+	display: inline-flex; align-items: center; gap: 0.5em; padding: 0.5rem 0.9rem; border-radius: var(--r-pill);
+	font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3);
+	background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px var(--line-soft);
+	transition: color var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.kind:hover { color: var(--ink-hi); background: rgba(255, 255, 255, 0.07); }
+.kind.is-active { color: var(--ink-hi); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.3); }
+.kind__count { font-family: var(--font-mono); font-size: 0.66rem; color: var(--ink-4); }
+.kind.is-active .kind__count { color: var(--accent-ink); }
+.toggle-chip.is-active { color: var(--ink-hi); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.3); }
+
+.count { display: flex; align-items: center; gap: var(--s-4); min-height: 1.4em; margin: var(--s-6) 0 var(--s-5); font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-4); }
+.count__clear { font-family: var(--font-display); font-size: var(--fs-xs); letter-spacing: normal; text-transform: none; color: var(--accent-ink); }
+.count__clear:hover { color: var(--ink-hi); }
+
+/* ── Sections & grid ──────────────────────────────────────────────────────── */
+.group + .group { margin-top: clamp(36px, 4vw, 56px); }
+.group__head { display: flex; align-items: center; gap: var(--s-4); margin-bottom: var(--s-4); }
+.group__title { display: inline-flex; align-items: center; gap: 0.65rem; }
+.group__title::before { content: ''; width: 22px; height: 1px; background: linear-gradient(90deg, var(--accent), transparent); }
+.group__rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+.linkbtn { font-family: var(--font-display); font-size: var(--fs-xs); color: var(--ink-4); transition: color var(--dur-fast) var(--ease-std); }
+.linkbtn:hover { color: var(--danger); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: var(--s-4); }
+.skeleton { height: 206px; border-radius: var(--r-md); background: linear-gradient(177deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)); box-shadow: inset 0 0 0 1px var(--line-soft); animation: skeleton-pulse 1.6s var(--ease-soft) infinite; }
+@keyframes skeleton-pulse { 50% { opacity: 0.55; } }
+
+/* ── Card — the marketplace's ItemCard anatomy ───────────────────────────── */
+.card { --glass-radius: var(--r-md); display: flex; flex-direction: column; gap: 0.55rem; padding: var(--s-5); height: 100%; }
+.card.is-pending { box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.55), 0 0 0 3px var(--halo-faint), var(--shadow-md); }
+.card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: 0.2rem; }
+.card__icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--r-sm); color: var(--accent-ink); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.16); font-family: var(--font-display); font-weight: 600; }
+.card__icon img { width: 20px; height: 20px; }
+.card__meta { display: flex; align-items: center; gap: var(--s-2); }
+.card__kind { font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-4); }
+.card__name { display: flex; align-items: center; gap: 0.4em; font-size: var(--fs-h4); font-weight: 600; letter-spacing: -0.012em; line-height: 1.35; }
+.card__official { color: var(--accent-soft); opacity: 0.9; }
+.card__tagline { font-size: var(--fs-sm); line-height: 1.62; color: var(--ink-3); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.card__rel { font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-4); }
+.card__rel b { font-weight: 500; color: var(--ink-3); }
+.card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-top: auto; padding-top: var(--s-4); }
+.card__source { display: inline-flex; align-items: center; gap: 0.4em; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Status badge — the marketplace's mono pill with a glowing dot. */
+.badge { display: inline-flex; align-items: center; gap: 0.45em; padding: 0.24em 0.6em 0.24em 0.46em; border-radius: var(--r-pill); font-family: var(--font-mono); font-size: 0.62rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; color: var(--ink-3); background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.badge--installed { color: var(--live); background: var(--live-soft); box-shadow: inset 0 0 0 1px rgba(110, 231, 183, 0.22); }
+.badge--installed .badge__dot { box-shadow: 0 0 8px 1px rgba(110, 231, 183, 0.7); }
+.badge--update { color: var(--wait); background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.2); }
+.badge--system { color: var(--accent-ink); background: rgba(168, 85, 247, 0.10); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.22); }
+
+.empty { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-4); padding: clamp(40px, 6vw, 72px) clamp(24px, 4vw, 44px); border-radius: var(--r-md); background: rgba(255, 255, 255, 0.025); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.empty h2 { font-size: var(--fs-h4); }
+.empty p { font-size: var(--fs-sm); color: var(--ink-3); max-width: 56ch; }
+.alert { display: flex; align-items: flex-start; gap: 0.55em; margin-bottom: var(--s-5); padding: 0.75rem 0.95rem; border-radius: var(--r-sm); font-size: var(--fs-xs); line-height: 1.55; color: var(--danger-ink); background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.22); white-space: pre-wrap; }
+.alert--wait { color: var(--wait); background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.18); }
+.alert .glyph { margin-top: 2px; }
+
+/* ── Pending bar ──────────────────────────────────────────────────────────── */
+.bar { position: fixed; left: 50%; bottom: 18px; z-index: 20; width: min(1180px, calc(100% - 32px)); padding: var(--s-4) var(--s-5); transform: translate(-50%, 160%); transition: transform var(--dur-slow) var(--ease); }
+.bar.show { transform: translate(-50%, 0); }
+.bar__row { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.bar__sum { font-family: var(--font-display); font-weight: 600; color: var(--ink-hi); }
+.bar__spacer { flex: 1; }
+.bar__label { font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-4); }
+.seg { display: inline-flex; gap: 2px; padding: 4px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.seg button { padding: 0.4rem 0.85rem; border-radius: var(--r-pill); font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; color: var(--ink-4); transition: color var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std); }
+.seg button:hover { color: var(--ink-2); }
+.seg button.on { color: var(--ink-hi); background: rgba(255, 255, 255, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 1px 6px -2px rgba(0, 0, 0, 0.5); }
+.plan { margin-top: var(--s-3); font-size: var(--fs-xs); line-height: 1.6; color: var(--ink-3); max-height: 150px; overflow: auto; }
+.plan .err { color: var(--danger); }
+.plan .warn { color: var(--wait); }
+.extras { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); padding: 0.6rem 0.8rem; border-radius: var(--r-sm); font-size: var(--fs-xs); color: var(--wait); background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.18); cursor: pointer; }
+.extras input { accent-color: var(--wait); }
+.hint { margin-top: var(--s-2); font-size: var(--fs-xs); color: var(--wait); }
+
+/* ── Run window ───────────────────────────────────────────────────────────── */
+.overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; padding: var(--s-4); background: rgba(3, 2, 8, 0.66); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.overlay.show { display: grid; animation: fade-in 0.2s ease; }
+.overlay.closing { animation: fade-out 0.35s ease forwards; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+.run { --glass-radius: var(--r-lg); width: min(900px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; transition: width var(--dur) var(--ease); }
+.run.compact { width: min(580px, 100%); }
+.run__head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-4) var(--s-5); }
+.run__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-weight: 600; color: var(--ink-hi); }
+.dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--wait); box-shadow: 0 0 10px var(--wait); animation: pulse 1.2s ease-in-out infinite; }
+.dot.ok { background: var(--live); box-shadow: 0 0 10px var(--live); animation: none; }
+.dot.bad { background: var(--danger); box-shadow: 0 0 10px var(--danger); animation: none; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.progress { height: 2px; margin: 0 var(--s-5) var(--s-4); border-radius: 2px; background: var(--line); overflow: hidden; }
+.progress::after { content: ''; display: block; width: 35%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, transparent, var(--accent-soft), transparent); animation: slide 1.3s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.run.done .progress { display: none; }
+/* Collapsed log: a small liquid-glass pane. The newest two lines are crisp;
+   the two before them recede — fading and blurring the further back they are
+   — so it reads as a live stream rather than a fixed readout. New lines slide
+   the stack up instead of snapping. */
+.tail {
+	--line-h: 1.2rem;
+	position: relative; isolation: isolate; overflow: hidden;
+	margin: 0 var(--s-5) var(--s-5);
+	height: calc(4 * var(--line-h) + 1.4rem);
+	border-radius: var(--r-sm);
+	font: 0.75rem/var(--line-h) var(--font-mono); color: var(--ink-2);
+	background: linear-gradient(177deg, rgba(255, 255, 255, 0.06), rgba(168, 85, 247, 0.02) 55%, rgba(255, 255, 255, 0.025)), rgba(3, 2, 8, 0.55);
+	-webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -14px 26px -24px rgba(255, 255, 255, 0.22), inset 0 0 0 1px var(--line-soft);
+}
+/* Specular rim, like the cards' glass. */
+.tail::before {
+	content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit; padding: 1px; pointer-events: none;
+	background: linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.04) 30%, transparent 60%, rgba(192, 132, 252, 0.18));
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+	mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+}
+.tail__lines {
+	position: absolute; left: 0.9rem; right: 0.9rem; bottom: 0.7rem;
+	-webkit-mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) 22%, #000 52%);
+	mask-image: linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.35) 22%, #000 52%);
+}
+.tail__lines.slide { transition: transform 0.42s var(--ease); }
+.tail__lines span { display: block; height: var(--line-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity 0.42s var(--ease), filter 0.42s var(--ease), color 0.42s var(--ease); }
+.tail__lines span:nth-last-child(n + 5) { opacity: 0; filter: blur(3px); }
+.tail__lines span:nth-last-child(4) { opacity: 0.32; filter: blur(1.8px); color: var(--ink-3); }
+.tail__lines span:nth-last-child(3) { opacity: 0.6; filter: blur(0.7px); color: var(--ink-3); }
+.tail__lines span:nth-last-child(2) { color: var(--ink-2); }
+.tail__lines span:last-child { color: var(--ink-hi); }
+pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: auto; flex: 1; min-height: 260px; font: 0.75rem/1.6 var(--font-mono); color: var(--ink-2); background: rgba(3, 2, 8, 0.72); border-top: 1px solid var(--line-soft); white-space: pre-wrap; word-break: break-word; }
+.run:not(.compact) pre.log { display: block; }
+.run:not(.compact) .tail { display: none; }
+
+.celebrate { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; border-radius: inherit; background: rgba(12, 9, 22, 0.94); opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+.celebrate.on { opacity: 1; }
+.check { width: 96px; height: 96px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #A7F3D0, var(--live) 45%, #10B981); box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.6), 0 18px 50px -12px rgba(16, 185, 129, 0.8); transform: scale(0.2); }
+.celebrate.on .check { animation: pop 0.55s cubic-bezier(0.2, 1.6, 0.4, 1) forwards, ring 1.1s ease-out 0.2s; }
+.check svg { width: 50px; height: 50px; }
+.check path { fill: none; stroke: #053B2A; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 30; stroke-dashoffset: 30; }
+.celebrate.on .check path { animation: draw 0.4s ease-out 0.3s forwards; }
+.celebrate p { position: absolute; top: calc(50% + 68px); font-family: var(--font-display); font-weight: 600; color: var(--ink-hi); opacity: 0; }
+.celebrate.on p { animation: rise 0.4s ease-out 0.45s forwards; }
+@keyframes pop { to { transform: scale(1); } }
+@keyframes ring { to { box-shadow: 0 0 0 36px rgba(110, 231, 183, 0), 0 18px 50px -12px rgba(16, 185, 129, 0.8); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.confetti { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+
+@media (max-width: 860px) {
+	.intro__top { flex-direction: column; align-items: flex-start; gap: var(--s-6); }
+	.grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+}
+@media (max-width: 720px) {
+	.toolbar { grid-template-columns: 1fr; grid-template-areas: 'search' 'kinds' 'extra'; }
+	.bar__spacer { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { transition: none !important; animation: none !important; }
+	.check { transform: none; } .check path { stroke-dashoffset: 0; } .celebrate p { opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div class="backdrop" aria-hidden="true">
+	<div class="backdrop__base"></div>
+	<div class="backdrop__light backdrop__light--a"></div>
+	<div class="backdrop__orbit backdrop__orbit--far"></div>
+	<div class="backdrop__dust backdrop__dust--far"></div>
+	<div class="backdrop__grid"></div>
+	<div class="backdrop__light backdrop__light--b"></div>
+	<div class="backdrop__light backdrop__light--c"></div>
+	<div class="backdrop__orbit backdrop__orbit--near"></div>
+	<div class="backdrop__dust backdrop__dust--near"></div>
+	<div class="backdrop__grain"></div>
+	<div class="backdrop__vignette"></div>
+</div>
+
+<main>
+	<section class="intro">
+		<div class="container">
+			<div class="intro__top">
+				<div>
+					<p class="mono intro__eyebrow"><span class="intro__tick" aria-hidden="true"></span>Marketplace</p>
+					<h1 class="intro__title">Everything you can add.</h1>
+					<p class="intro__lead">Applications, widgets and plugins for your Nucleus — most of them free, all of them optional. Install what you want; leave the rest out.</p>
+				</div>
+				<div class="account-bar">
+					<button type="button" class="chip" id="refresh" title="Rescan the GitHub org">
+						<svg class="glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 5v6h-6"/></svg>
+						Rescan
+					</button>
+					<button type="button" class="chip chip--danger" id="removeAll" title="Queue every installed module for removal — back to core + infra + hub" hidden>
+						<svg class="glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9L17.5 7"/></svg>
+						Uninstall everything
+					</button>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section>
+		<div class="container">
+			<div class="toolbar">
+				<div class="toolbar__search">
+					<svg class="glyph" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.35-4.35"/></svg>
+					<input class="input" id="search" type="search" placeholder="Search the marketplace…" aria-label="Search the marketplace" autocomplete="off">
+				</div>
+				<div class="toolbar__extra">
+					<button type="button" class="chip toggle-chip" id="installedOnly" aria-pressed="false">Installed only</button>
+				</div>
+				<div class="toolbar__kinds" id="kinds" role="group" aria-label="Kind"></div>
+			</div>
+
+			<p class="count" id="count"></p>
+			<div id="main">
+				<div class="grid" aria-hidden="true">
+					<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+					<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+				</div>
+			</div>
+		</div>
+	</section>
+</main>
+
+<div class="bar glass glass--deep" id="bar">
+	<div class="bar__row">
+		<span class="bar__sum" id="sum"></span>
+		<button type="button" class="chip" id="clear">Clear</button>
+		<span class="bar__spacer"></span>
+		<span class="bar__label">Apply with</span>
+		<div class="seg" id="mode">
+			<button type="button" data-mode="production" class="on" title="infra/production — blue/green, no downtime">Production</button>
+			<button type="button" data-mode="dev" title="infra/nucleus up — the dev stack">Dev</button>
+			<button type="button" data-mode="none" title="Only change the checkout">Don't apply</button>
+		</div>
+		<button type="button" class="btn btn--primary btn--md" id="apply">Apply changes</button>
+	</div>
+	<ul class="plan" id="plan"></ul>
+	<label class="extras" id="extras" hidden><input type="checkbox" id="extrasBox"> <span id="extrasLabel"></span></label>
+	<div class="hint" id="stackHint" hidden></div>
+</div>
+
+<div class="overlay" id="overlay">
+	<div class="run glass glass--deep compact" id="run" role="dialog" aria-modal="true" aria-labelledby="runTitle">
+		<div class="run__head">
+			<span class="dot" id="runDot"></span>
+			<span class="run__title" id="runTitle">Working…</span>
+			<button type="button" class="chip" id="runToggle" aria-expanded="false">Show log</button>
+			<button type="button" class="chip" id="runClose" disabled>Close</button>
+		</div>
+		<div class="progress" aria-hidden="true"></div>
+		<div class="tail" aria-live="polite"><div class="tail__lines" id="tail"><span>Starting…</span></div></div>
+		<pre class="log" id="log"></pre>
+		<div class="celebrate" id="celebrate" aria-hidden="true">
+			<div class="check"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 7"/></svg></div>
+			<p>All done</p>
+		</div>
+	</div>
+</div>
+<canvas class="confetti" id="confetti" aria-hidden="true"></canvas>
+
+<script>
+(() => {
+	// The one-time token arrives in the URL fragment (never sent to the server
+	// in a request line); keep it for reloads of this tab, then tidy the URL.
+	const fromHash = new URLSearchParams(location.hash.slice(1)).get('token')
+	if (fromHash) {
+		try { sessionStorage.setItem('modules-token', fromHash) } catch {}
+		history.replaceState(null, '', location.pathname)
+	}
+	let token = fromHash
+	try { token = token || sessionStorage.getItem('modules-token') } catch {}
+
+	const $ = (id) => document.getElementById(id)
+	const KINDS = [
+		['app', 'Applications', 'Application'],
+		['plugin', 'Plugins', 'Plugin'],
+		['widget', 'Widgets', 'Widget'],
+		['service', 'Services', 'Service'],
+	]
+	const KIND_LABEL = Object.fromEntries(KINDS.map(([k, , one]) => [k, one]))
+	const state = { modules: [], byKey: {}, warnings: [], stacks: {}, loaded: false, filter: '', installedOnly: false, query: '', install: new Set(), remove: new Set(), extras: false, mode: 'production' }
+
+	const ICONS = {
+		alert: '<path d="M12 9v4M12 16.5h.01"/><path d="M10.3 4.4 2.6 17.6A2 2 0 0 0 4.3 20.6h15.4a2 2 0 0 0 1.7-3L13.7 4.4a2 2 0 0 0-3.4 0Z"/>',
+		check: '<path d="M5 12.5l4.2 4.2L19 7"/>',
+		repo: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/>',
+	}
+	const glyph = (name, size = 14, cls = '') =>
+		`<svg class="glyph ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
+
+	async function api(path, body) {
+		const res = await fetch(path, {
+			method: body ? 'POST' : 'GET',
+			headers: { 'X-Modules-Token': token || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+			body: body ? JSON.stringify(body) : undefined,
+		})
+		const text = await res.text()
+		let data
+		try { data = JSON.parse(text) } catch { data = { error: text } }
+		if (!res.ok) throw new Error(data.error || text || res.statusText)
+		return data
+	}
+
+	const key = (m) => `${m.kind}:${m.id}`
+	const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+	const removable = (m) => m.installed && !m.local && !m.hidden
+	const label = (k) => (state.byKey[k] || {}).name || k.split(':')[1]
+
+	// Module icons are SVG from the repos. They're shown as <img> data URIs —
+	// an image can't run script — with currentColor mapped to the accent ink.
+	function iconHTML(m) {
+		if (!m.icon) return esc((m.name || m.id).slice(0, 1).toUpperCase())
+		const svg = m.icon.replace(/currentColor/g, '#DCC9FE')
+		return `<img alt="" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`
+	}
+
+	async function load(refresh) {
+		if (!state.loaded) $('count').textContent = 'Scanning repositories…'
+		try {
+			const data = await api('/api/modules' + (refresh ? '?refresh=1' : ''))
+			state.org = data.org
+			state.modules = data.modules
+			state.warnings = data.warnings || []
+			state.stacks = data.stacks || {}
+			state.byKey = Object.fromEntries(data.modules.map((m) => [key(m), m]))
+			state.loaded = true
+			render()
+		} catch (e) {
+			$('count').textContent = ''
+			$('main').innerHTML = `<p class="alert">${glyph('alert', 15)}<span>${esc(e.message)}</span></p>`
+		}
+	}
+
+	function visible() {
+		const q = state.query.toLowerCase()
+		return state.modules.filter((m) => !m.hidden
+			&& (!state.filter || m.kind === state.filter)
+			&& (!state.installedOnly || m.installed)
+			&& (!q || `${m.name} ${m.id} ${m.description}`.toLowerCase().includes(q)))
+	}
+
+	function renderToolbar() {
+		const listed = state.modules.filter((m) => !m.hidden)
+		const count = (k) => listed.filter((m) => !k || m.kind === k).length
+		$('kinds').innerHTML = [['', 'Everything'], ...KINDS].filter(([k]) => !k || count(k)).map(([k, l]) =>
+			`<button type="button" class="kind ${state.filter === k ? 'is-active' : ''}" data-filter="${k}" aria-pressed="${state.filter === k}">${l}<span class="kind__count">${count(k)}</span></button>`).join('')
+		$('installedOnly').classList.toggle('is-active', state.installedOnly)
+		$('installedOnly').setAttribute('aria-pressed', String(state.installedOnly))
+		$('removeAll').hidden = !state.modules.some(removable)
+	}
+
+	function card(m) {
+		const k = key(m)
+		const queued = state.install.has(k) || state.remove.has(k)
+		const update = m.installed && m.installedVersion && m.version && m.installedVersion !== m.version
+		let badge = ''
+		if (m.local) badge = '<span class="badge" title="Installed, but not in any repo of the org"><span class="badge__dot"></span>Local</span>'
+		else if (update) badge = `<span class="badge badge--update" title="Run infra/update to pull it"><span class="badge__dot"></span>${esc(m.installedVersion)} → ${esc(m.version)}</span>`
+		else if (m.installed) badge = '<span class="badge badge--installed"><span class="badge__dot"></span>Installed</span>'
+		if (m.system) badge += '<span class="badge badge--system" title="A system app — it can\'t be disabled from Admin"><span class="badge__dot"></span>System</span>'
+
+		const needs = (m.requires || []).filter((r) => !(state.byKey[r] || {}).hidden)
+		const rel = [
+			needs.length && `Needs <b>${needs.map((r) => esc(label(r))).join(', ')}</b>`,
+			(m.bundles || []).length && `Includes <b>${m.bundles.map((r) => esc(label(r))).join(', ')}</b>`,
+			m.hosts && `Launches <b>${esc(m.hosts)}s</b>`,
+		].filter(Boolean).join(' · ')
+
+		let action = ''
+		if (!m.local) {
+			if (m.installed) action = state.remove.has(k)
+				? '<button type="button" class="btn btn--queued" data-undo="1">Will remove · undo</button>'
+				: '<button type="button" class="btn btn--danger" data-act="remove">Remove</button>'
+			else action = state.install.has(k)
+				? '<button type="button" class="btn btn--queued" data-undo="1">Will install · undo</button>'
+				: '<button type="button" class="btn btn--glass" data-act="install">Install</button>'
+		}
+		const source = [m.version && `v${m.version}`, m.repo].filter(Boolean).map(esc).join(' · ')
+		return `<article class="card glass glass--interactive ${queued ? 'is-pending' : ''}" data-key="${esc(k)}">
+			<header class="card__head">
+				<span class="card__icon">${iconHTML(m)}</span>
+				<span class="card__meta">${badge}<span class="card__kind">${esc(KIND_LABEL[m.kind] || m.kind)}</span></span>
+			</header>
+			<h3 class="card__name">${esc(m.name)}${m.repo && !m.local ? glyph('check', 14, 'card__official') : ''}</h3>
+			<p class="card__tagline">${esc(m.description) || 'No description.'}</p>
+			${rel ? `<p class="card__rel">${rel}</p>` : ''}
+			<footer class="card__foot">
+				<span class="card__source" title="${esc(m.repo || '')}">${glyph('repo', 13)}${source || esc(m.id)}</span>
+				${action}
+			</footer>
+		</article>`
+	}
+
+	function render() {
+		renderToolbar()
+		const list = visible()
+		const filtered = !!(state.filter || state.installedOnly || state.query)
+		$('count').innerHTML = `${list.length} ${list.length === 1 ? 'listing' : 'listings'}`
+			+ (state.org ? ` <span aria-hidden="true">·</span> github.com/${esc(state.org)}` : '')
+			+ (filtered ? ' <button type="button" class="count__clear" id="clearFilters">Clear filters</button>' : '')
+		const warn = state.warnings.length
+			? `<p class="alert alert--wait">${glyph('alert', 15)}<span>Couldn't read: ${state.warnings.map(esc).join('\n')}</span></p>` : ''
+		if (!list.length) {
+			$('main').innerHTML = warn + `<div class="empty"><h2>${state.modules.length ? 'Nothing matches' : 'No modules found'}</h2>
+				<p>${state.modules.length ? 'Try another search, or clear the filters.' : 'No repo in the org has a Nucleus manifest yet.'}</p></div>`
+		} else {
+			$('main').innerHTML = warn + KINDS.map(([k, title]) => {
+				const items = list.filter((m) => m.kind === k)
+				if (!items.length) return ''
+				const canRemoveAll = items.filter(removable).length > 1
+				return `<div class="group">
+					<div class="group__head"><h2 class="mono group__title">${title}</h2><span class="group__rule"></span>
+						${canRemoveAll ? `<button type="button" class="linkbtn" data-remove-kind="${k}">Remove all</button>` : ''}</div>
+					<div class="grid">${items.map(card).join('')}</div>
+				</div>`
+			}).join('')
+		}
+		renderBar()
+	}
+
+	// Say so when the chosen mode won't touch the stack that's running.
+	function renderStackHint() {
+		const s = state.stacks || {}
+		let hint = ''
+		if (state.mode === 'production' && s.dev && !s.production) hint = 'Only the dev stack is running — Production builds the blue/green stack and won\'t update it. Pick Dev to apply here.'
+		if (state.mode === 'dev' && s.production && !s.dev) hint = 'Only the production stack is running — Dev starts a separate dev stack and won\'t update it.'
+		$('stackHint').textContent = hint
+		$('stackHint').hidden = !hint
+	}
+
+	let planSeq = 0
+	async function renderBar() {
+		renderStackHint()
+		const n = state.install.size + state.remove.size
+		$('bar').classList.toggle('show', n > 0)
+		if (!n) { state.extras = false; return }
+		const parts = []
+		if (state.install.size) parts.push(`${state.install.size} to install`)
+		if (state.remove.size) parts.push(`${state.remove.size} to remove`)
+		$('sum').textContent = parts.join(' · ')
+		const seq = ++planSeq
+		try {
+			const plan = await api('/api/plan', { install: [...state.install], remove: [...state.remove], extras: state.extras })
+			if (seq !== planSeq) return
+			$('plan').innerHTML = [
+				...plan.errors.map((e) => `<li class="err">✗ ${esc(e)}</li>`),
+				...plan.warnings.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`),
+				...plan.notes.map((t) => `<li>· ${esc(t)}</li>`),
+			].join('')
+			// The plan's optional follow-up, e.g. removing every widget with Pulse.
+			$('extras').hidden = !plan.extras
+			if (plan.extras) {
+				$('extrasLabel').textContent = `${plan.extras.label}: ${plan.extras.modules.map(label).join(', ')}`
+				$('extrasBox').checked = !!plan.extras.applied
+			} else {
+				state.extras = false
+			}
+			$('apply').disabled = plan.errors.length > 0
+		} catch (e) {
+			if (seq !== planSeq) return
+			$('plan').innerHTML = `<li class="err">✗ ${esc(e.message)}</li>`
+			$('apply').disabled = true
+		}
+	}
+
+	// ── Run window ────────────────────────────────────────────────────────
+	function setCompact(compact) {
+		$('run').classList.toggle('compact', compact)
+		$('runToggle').textContent = compact ? 'Show log' : 'Hide log'
+		$('runToggle').setAttribute('aria-expanded', String(!compact))
+	}
+
+	function showLog(text) {
+		const log = $('log')
+		const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30
+		log.textContent = text
+		if (stick) log.scrollTop = log.scrollHeight
+		renderTail(text.split('\n').map((l) => l.trimEnd()).filter(Boolean))
+	}
+
+	// The collapsed log keeps one extra line above the visible four, so a new
+	// line can push the stack up: render shifted down by the lines that just
+	// arrived, then glide back to rest.
+	let tailShown = []
+	let tailCount = 0
+	function renderTail(all) {
+		const el = $('tail')
+		const lines = all.slice(-5)
+		if (!lines.length) lines.push('Starting…')
+		if (lines.join('\n') === tailShown.join('\n')) return
+		const grew = tailShown.length ? Math.min(2, Math.max(0, all.length - tailCount)) : 0
+		tailShown = lines
+		tailCount = all.length
+		el.innerHTML = lines.map((l) => `<span>${esc(l)}</span>`).join('')
+		if (!grew || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+		el.classList.remove('slide')
+		el.style.transform = `translateY(calc(${grew} * var(--line-h)))`
+		void el.offsetHeight // commit the offset before animating it away
+		el.classList.add('slide')
+		el.style.transform = ''
+	}
+
+	async function apply() {
+		const body = { install: [...state.install], remove: [...state.remove], extras: state.extras, mode: state.mode }
+		tailShown = []; tailCount = 0
+		showLog('')
+		$('runDot').className = 'dot'
+		$('runTitle').textContent = 'Working…'
+		$('runClose').disabled = true
+		$('run').classList.remove('done')
+		$('celebrate').classList.remove('on')
+		setCompact(true)
+		$('overlay').classList.remove('closing')
+		$('overlay').classList.add('show')
+		try {
+			const job = await api('/api/run', body)
+			$('runTitle').textContent = job.title
+			poll()
+		} catch (e) {
+			finish(false, e.message)
+		}
+	}
+
+	async function poll() {
+		try {
+			const job = await api('/api/job')
+			showLog(job.log)
+			if (job.running) return setTimeout(poll, 700)
+			finish(job.ok)
+		} catch (e) {
+			setTimeout(poll, 1500) // the stack is restarting — keep trying
+		}
+	}
+
+	function finish(ok, message) {
+		if (message) showLog($('log').textContent + `\n✗ ${message}\n`)
+		$('run').classList.add('done')
+		$('runDot').className = 'dot ' + (ok ? 'ok' : 'bad')
+		$('runClose').disabled = false
+		if (!ok) {
+			$('runTitle').textContent = 'Failed — see the log'
+			setCompact(false) // failures open the full log
+			return
+		}
+		state.install.clear(); state.remove.clear(); state.extras = false
+		$('runTitle').textContent = 'Done'
+		$('celebrate').classList.add('on')
+		confetti()
+		setTimeout(closeRun, 2600)
+	}
+
+	function closeRun() {
+		const overlay = $('overlay')
+		if (!overlay.classList.contains('show')) return
+		overlay.classList.add('closing')
+		setTimeout(() => {
+			overlay.classList.remove('show', 'closing')
+			$('celebrate').classList.remove('on')
+			load(false)
+		}, 350)
+	}
+
+	// A short burst of confetti from behind the check mark.
+	function confetti() {
+		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+		const canvas = $('confetti')
+		const ctx = canvas.getContext('2d')
+		const dpr = window.devicePixelRatio || 1
+		canvas.width = innerWidth * dpr
+		canvas.height = innerHeight * dpr
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+		const colors = ['#A855F7', '#C084FC', '#6366F1', '#6EE7B7', '#FCD34D', '#F472B6', '#F6F4FC']
+		const cx = innerWidth / 2, cy = innerHeight / 2
+		const bits = Array.from({ length: 160 }, () => {
+			const a = Math.random() * Math.PI * 2, v = 6 + Math.random() * 9
+			return { x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 5, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4,
+				w: 6 + Math.random() * 6, h: 3 + Math.random() * 4, c: colors[(Math.random() * colors.length) | 0], life: 1 }
+		})
+		let last = performance.now()
+		function frame(now) {
+			const dt = Math.min(2, (now - last) / 16.7); last = now
+			ctx.clearRect(0, 0, innerWidth, innerHeight)
+			let alive = 0
+			for (const b of bits) {
+				b.vy += 0.32 * dt; b.vx *= 0.99; b.vy *= 0.99
+				b.x += b.vx * dt; b.y += b.vy * dt; b.r += b.vr * dt; b.life -= 0.007 * dt
+				if (b.life <= 0 || b.y > innerHeight + 20) continue
+				alive++
+				ctx.save(); ctx.globalAlpha = Math.min(1, b.life * 1.5)
+				ctx.translate(b.x, b.y); ctx.rotate(b.r)
+				ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h)
+				ctx.restore()
+			}
+			if (alive) requestAnimationFrame(frame)
+			else ctx.clearRect(0, 0, innerWidth, innerHeight)
+		}
+		requestAnimationFrame(frame)
+	}
+
+	// ── Pointer sheen on glass cards (the site's v-pointer) ──────────────
+	const fine = matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches
+	let sheenFrame = 0
+	if (fine) {
+		$('main').addEventListener('pointermove', (e) => {
+			const el = e.target.closest('.card')
+			if (!el || sheenFrame) return
+			sheenFrame = requestAnimationFrame(() => {
+				sheenFrame = 0
+				const r = el.getBoundingClientRect()
+				el.style.setProperty('--gx', `${(((e.clientX - r.left) / r.width) * 100).toFixed(2)}%`)
+				el.style.setProperty('--gy', `${(((e.clientY - r.top) / r.height) * 100).toFixed(2)}%`)
+			})
+		}, { passive: true })
+	}
+
+	// ── Events ────────────────────────────────────────────────────────────
+	document.addEventListener('click', (e) => {
+		if (e.target.closest('#clearFilters')) {
+			state.filter = ''; state.installedOnly = false; state.query = ''; $('search').value = ''
+			render()
+		}
+	})
+	$('main').addEventListener('click', (e) => {
+		const kindBtn = e.target.closest('[data-remove-kind]')
+		if (kindBtn) {
+			for (const m of state.modules) if (m.kind === kindBtn.dataset.removeKind && removable(m)) { state.install.delete(key(m)); state.remove.add(key(m)) }
+			return render()
+		}
+		const btn = e.target.closest('button')
+		const cardEl = e.target.closest('.card')
+		if (!btn || !cardEl) return
+		const k = cardEl.dataset.key
+		if (btn.dataset.undo) { state.install.delete(k); state.remove.delete(k) }
+		else if (btn.dataset.act === 'install') state.install.add(k)
+		else if (btn.dataset.act === 'remove') state.remove.add(k)
+		render()
+	})
+	$('removeAll').addEventListener('click', () => {
+		state.install.clear()
+		for (const m of state.modules) if (removable(m)) state.remove.add(key(m))
+		state.extras = true
+		render()
+	})
+	$('extrasBox').addEventListener('change', (e) => { state.extras = e.target.checked; renderBar() })
+	$('kinds').addEventListener('click', (e) => {
+		const tab = e.target.closest('[data-filter]')
+		if (tab) { state.filter = tab.dataset.filter; render() }
+	})
+	$('installedOnly').addEventListener('click', () => { state.installedOnly = !state.installedOnly; render() })
+	$('search').addEventListener('input', (e) => { state.query = e.target.value; render() })
+	$('refresh').addEventListener('click', () => load(true))
+	$('clear').addEventListener('click', () => { state.install.clear(); state.remove.clear(); state.extras = false; render() })
+	$('mode').addEventListener('click', (e) => {
+		const b = e.target.closest('[data-mode]')
+		if (!b) return
+		state.mode = b.dataset.mode
+		for (const x of $('mode').children) x.classList.toggle('on', x === b)
+		$('apply').textContent = state.mode === 'none' ? 'Change checkout' : 'Apply changes'
+		renderStackHint()
+	})
+	$('apply').addEventListener('click', apply)
+	$('runToggle').addEventListener('click', () => setCompact(!$('run').classList.contains('compact')))
+	$('runClose').addEventListener('click', closeRun)
+
+	if (!token) {
+		$('count').textContent = ''
+		$('main').innerHTML = `<p class="alert">${glyph('alert', 15)}<span>No access token. Open the link printed by ./modules ui.</span></p>`
+	} else {
+		load(false)
+	}
+})()
+</script>
+</body>
+</html>

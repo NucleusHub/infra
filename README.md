@@ -21,6 +21,42 @@ optional sibling that can be added or removed at any time — `./nucleus up
 A module counts as installed only when it has that marker file, so an empty
 directory (e.g. one Docker recreated for an app's bind mount) is ignored.
 
+### Installing and removing modules — `./modules`
+
+`./modules` scans the GitHub org infra was cloned from and shows every app,
+plugin and widget it offers next to what's installed:
+
+```bash
+./modules                          # list installed + available
+./modules install shelf spotify    # install (with dependencies), then apply
+./modules remove spotify           # remove (with what it bundles), then apply
+./modules apply [--dev]            # just rebuild the stack from the checkout
+./modules ui                       # the same in a small local web UI
+```
+
+- **Apply** runs `./production` (blue/green, no downtime) by default; `--dev`
+  uses `./nucleus up -d --build --remove-orphans` instead, `--no-apply` only
+  changes the checkout. The UI offers the same three choices.
+- **What gets installed.** An app is its own repo, cloned to `apps/<repo>`. A
+  plugin or widget is one folder of the `plugins` / `widgets` repo, added as a
+  sparse checkout so each installs on its own. Dependencies come from the
+  manifests — a widget's `dependsOn`, a plugin's `dependencies.{apps,plugins}`,
+  the widget that shares an app's id (its dashboard widget), a collection's
+  `locked` entries (`widgets/core`) — and plugins bring the plugin runtime.
+- **Safety.** A removal is refused while something installed still needs it,
+  and whenever the folder has uncommitted or unpushed work; ignored files that
+  would go with it (e.g. a `.env`) are listed first. Modules that aren't in any
+  repo are shown as *Local* and never touched. Removing an app deletes its code,
+  not its data in MongoDB/MinIO.
+- **Credentials.** The org's repos are private, so the scan needs a token:
+  `NUCLEUS_GITHUB_TOKEN` in `infra/.env` (or the environment), else
+  `gh auth token`, else whatever git already uses for github.com. The org can be
+  overridden with `NUCLEUS_GITHUB_ORG`.
+- **The UI** listens on `127.0.0.1:7777` (`--addr` to change, `--no-open` to not
+  launch a browser) and prints a link with a one-time token; its API refuses
+  requests without it. On a remote server, reach it over an SSH tunnel
+  (`ssh -L 7777:127.0.0.1:7777 server`) rather than binding it publicly.
+
 ## Commands
 
 All commands are run from the `infra/` directory (or by absolute path — they
@@ -32,6 +68,7 @@ resolve their own location).
 | `./nucleus [--all] <compose args>` | Dev Compose passthrough — **app-scoped by default**. |
 | `./production [--force] [-j N]` | Build all frontends and deploy the **prod** stack. |
 | `./update [repo…]` | `git pull` across all (or named) Nucleus repos. |
+| `./modules [install\|remove\|apply\|ui] …` | Install / remove apps, plugins and widgets from the GitHub org, then apply — see *Modules*. |
 
 ### `./dev`
 

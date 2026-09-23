@@ -24,6 +24,7 @@ const (
 	cBold   = "\033[1m"
 	cGreen  = "\033[32m"
 	cYellow = "\033[33m"
+	cRed    = "\033[31m"
 	cDim    = "\033[2m"
 	cReset  = "\033[0m"
 )
@@ -174,7 +175,7 @@ func (b *builder) planUnits() ([]*unit, error) {
 	for _, appID := range appDirs {
 		appDir := filepath.Join(p.apps, appID)
 		clientDir := filepath.Join(appDir, "client")
-		if isIgnored(appDir) || !exists(filepath.Join(clientDir, "vite.config.js")) {
+		if isIgnored(appDir) || !isApp(appDir) || !exists(filepath.Join(clientDir, "vite.config.js")) {
 			continue
 		}
 		forceSymlink(filepath.Join(p.root, "core"), filepath.Join(clientDir, "core"))

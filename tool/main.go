@@ -74,6 +74,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
+	case "modules", "mod":
+		if err := runModules(p, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	case "bump":
 		if err := runBump(p, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -97,8 +102,19 @@ Usage:
   nucleus dev               start the dev stack (no-op if it's already running)
   nucleus bump <module> <part> [channel]
                             bump a module/platform SemVer version (see VERSIONING.md)
+  nucleus modules [list|install|remove|apply|ui] [ids...]
+                            install/remove apps, plugins and widgets from the
+                            GitHub org, then apply (infra/modules is the shim)
 
 Flags (build):
   --force, -f     ignore the build cache and rebuild every unit
-  -j N            max parallel build units (default: min(NumCPU, 4))`)
+  -j N            max parallel build units (default: min(NumCPU, 4))
+
+Flags (modules):
+  --dev           apply with the dev stack (infra/nucleus up) instead of infra/production
+  --no-apply      change the checkout only
+  --yes, -y       don't ask for confirmation
+  --refresh       rescan the org instead of using the cached scan
+  --addr A        ui: listen address (default 127.0.0.1:7777)
+  --no-open       ui: don't open a browser`)
 }
