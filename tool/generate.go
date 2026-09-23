@@ -80,6 +80,61 @@ func fallbackLocation() string {
     }`
 }
 
+// modules reports which optional top-level modules are installed. A minimal
+// setup is core + infra + hub; everything else is mounted, built and routed
+// only when installed, so a missing module never breaks `docker compose up` (a
+// missing build context is a hard error, and a missing bind-mount source would
+// be silently recreated as an empty dir).
+type modules struct {
+	plugins       bool     // ../plugins — core/app plugin code
+	pluginIDs     []string // installed plugin dirs, sorted
+	pluginRuntime bool     // ../plugin-runtime — the /api/plugins discovery service
+	widgets       bool     // ../widgets — widget packages
+}
+
+// optionalModules detects the installed modules. "Installed" means the module
+// has real content, not just that its directory exists: an app's own compose
+// file may bind-mount ../plugins or ../widgets, which makes Docker recreate
+// them as empty dirs.
+func optionalModules(p paths) modules {
+	manifests, _ := filepath.Glob(filepath.Join(p.root, "plugins", "*", "nucleus.plugin.json"))
+	var ids []string
+	for _, m := range manifests {
+		ids = append(ids, filepath.Base(filepath.Dir(m)))
+	}
+	sort.Strings(ids)
+	return modules{
+		plugins:       len(ids) > 0,
+		pluginIDs:     ids,
+		pluginRuntime: exists(filepath.Join(p.root, "plugin-runtime", "Dockerfile")),
+		widgets:       exists(filepath.Join(p.widgets, "package.json")),
+	}
+}
+
+// pluginsLocation proxies /api/plugins to the plugin runtime when it's installed,
+// and otherwise answers with an empty registry so clients see "no plugins"
+// rather than a 502.
+func pluginsLocation(p paths) string {
+	if !optionalModules(p).pluginRuntime {
+		return `
+    location /api/plugins {
+        # Plugin runtime not installed — report an empty plugin registry.
+        default_type application/json;
+        return 200 '{"plugins":[]}';
+    }`
+	}
+	return `
+    location /api/plugins {
+        # Plugin runtime — discovery/metadata only. Variable + resolver so nginx
+        # re-resolves its IP per request (survives container restarts).
+        set $plugins_upstream plugin-runtime:4100;
+        proxy_pass http://$plugins_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }`
+}
+
 // runGenerate is the entry point for `nucleus generate`. It mirrors the main
 // body of generate.js: discover, validate, then emit the four config files.
 func runGenerate(p paths) error {
@@ -91,6 +146,7 @@ func runGenerate(p paths) error {
 	if err != nil {
 		return err
 	}
+	syncHubLibLinks(p, hubLibs)
 
 	fmt.Printf("Apps:    %s\n", joinIDsOr(apps, "none"))
 	fmt.Printf("Widgets: %s\n", joinIDsOr(widgets, "none"))
@@ -310,16 +366,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
-
-    location /api/plugins {
-        # Plugin runtime — discovery/metadata only. Variable + resolver so nginx
-        # re-resolves its IP per request (survives container restarts).
-        set $plugins_upstream plugin-runtime:4100;
-        proxy_pass http://$plugins_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+` + pluginsLocation(p) + `
 
     # Maintenance flag — a static file written by infra/maintenance and served by
     # nginx (not an app server), so it stays reachable while apps are rebuilt.
@@ -337,7 +384,10 @@ server {
     }
 
     location / {
-        proxy_pass http://hub:5174;
+        # Variable + resolver so nginx re-resolves the hub per request — a
+        # recreated hub container (new IP) is picked up without an nginx reload.
+        set $hub_upstream hub:5174;
+        proxy_pass http://$hub_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Upgrade $http_upgrade;
@@ -411,16 +461,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
-
-    location /api/plugins {
-        # Plugin runtime — discovery/metadata only. Variable + resolver so nginx
-        # re-resolves its IP per request (survives container restarts).
-        set $plugins_upstream plugin-runtime:4100;
-        proxy_pass http://$plugins_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+` + pluginsLocation(p) + `
 
     # Maintenance flag — a static file written by infra/maintenance and served by
     # nginx (not an app server), so it stays reachable while apps are rebuilt.
@@ -704,7 +745,7 @@ services:
 
 	if needsMinio {
 		out.WriteString(`  minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
 `)
@@ -748,7 +789,7 @@ services:
 // ── Stack compose (blue/green color template) ────────────────────────────────
 
 // generateStackCompose emits the color-swappable app stack: registry,
-// plugin-runtime, every app/auth/widget server, and a per-color web nginx. It is
+// plugin-runtime (when installed), every app/auth/widget server, and a per-color web nginx. It is
 // parameterized by ${NUCLEUS_COLOR} (project suffix, network alias, snapshot
 // dir) and ${NUCLEUS_WEB_PORT} (debug host port), so ONE file runs both colors:
 //
@@ -760,6 +801,7 @@ services:
 // the web-<color> alias. Upload volumes are pinned to their original nucleus_*
 // names and shared across colors (user uploads persist across deploys).
 func generateStackCompose(p paths, apps, widgets []*Manifest) string {
+	mods := optionalModules(p)
 	for _, m := range widgets {
 		m.role = "widget-server"
 	}
@@ -866,28 +908,19 @@ services:
       NUCLEUS_MANIFEST: /nucleus.json
     volumes:
       - ../apps:/apps:ro
-      - ../widgets:/widgets:ro
-      - ./nucleus.json:/nucleus.json:ro
-    networks:
-      - internal
-
-  plugin-runtime:
-    build:
-      context: ../plugin-runtime
-    restart: unless-stopped
 `)
-	out.WriteString(labelsBlock("plugin-runtime", "", nil))
-	out.WriteString(`    environment:
-      PORT: 4100
-      PLUGINS_DIR: /plugins
-      NUCLEUS_MANIFEST: /nucleus.json
-    volumes:
-      - ../plugins:/plugins:ro
-      - ./nucleus.json:/nucleus.json:ro
+	if mods.widgets {
+		out.WriteString("      - ../widgets:/widgets:ro\n")
+	}
+	out.WriteString(`      - ./nucleus.json:/nucleus.json:ro
     networks:
       - internal
 
 `)
+	if mods.pluginRuntime {
+		out.WriteString(pluginRuntimeService("    networks:\n      - internal\n", mods))
+		out.WriteString("\n")
+	}
 	out.WriteString(strings.Join(serverBlocks, "\n"))
 	out.WriteString("\n")
 
@@ -955,8 +988,10 @@ type hubLib struct {
 }
 
 // findHubLibraries finds apps with a client/ dir but no client/vite.config.js —
-// hub libraries whose client/ is mounted into the hub container so the @<id>
-// vite alias resolves.
+// hub libraries, bundled into the hub rather than built standalone. Each one is
+// exposed to the hub at hub/libs/<id> (a symlink locally, a bind mount in the
+// dev container), where the hub discovers what it offers by fixed filename
+// (e.g. libs/<id>/hub.js — see hub/src/composables/useDashboardProvider.js).
 func findHubLibraries(p paths) ([]hubLib, error) {
 	if !exists(p.apps) {
 		return nil, nil
@@ -987,7 +1022,50 @@ func findHubLibraries(p paths) ([]hubLib, error) {
 	return libs, nil
 }
 
+// pluginRuntimeService emits the plugin-runtime service block (shared by the dev
+// override and the blue/green stack; extra carries per-target keys).
+func pluginRuntimeService(extra string, mods modules) string {
+	var b strings.Builder
+	b.WriteString("  plugin-runtime:\n    build:\n      context: ../plugin-runtime\n    restart: unless-stopped\n")
+	b.WriteString(labelsBlock("plugin-runtime", "", nil))
+	b.WriteString("    environment:\n      PORT: 4100\n      PLUGINS_DIR: /plugins\n      NUCLEUS_MANIFEST: /nucleus.json\n")
+	b.WriteString("    volumes:\n")
+	if mods.plugins {
+		b.WriteString("      - ../plugins:/plugins:ro\n")
+	}
+	b.WriteString("      - ./nucleus.json:/nucleus.json:ro\n")
+	b.WriteString(extra)
+	return b.String()
+}
+
+// generateOverride emits the dev compose override: includes for every module
+// that ships a docker-compose.app.yml, plus everything optional — hub library,
+// widget and plugin mounts, and the plugin runtime — only when installed.
+// syncHubLibLinks points hub/libs/<id> at each installed hub library's client/
+// and prunes links to libraries that are gone, so adding or removing an app is
+// all it takes. hub/libs is gitignored in the hub repo; only symlinks are ever
+// removed, never real files.
+func syncHubLibLinks(p paths, libs []hubLib) {
+	dir := filepath.Join(p.root, "hub", "libs")
+	if !exists(filepath.Join(p.root, "hub")) {
+		return
+	}
+	_ = os.MkdirAll(dir, 0o755)
+	want := map[string]bool{}
+	for _, l := range libs {
+		want[l.id] = true
+		forceSymlink(filepath.Join(p.apps, l.id, "client"), filepath.Join(dir, l.id))
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink != 0 && !want[e.Name()] {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
 func generateOverride(p paths, apps, widgets []*Manifest, hubLibs []hubLib) string {
+	mods := optionalModules(p)
 	var includes []string
 	for _, m := range append(append([]*Manifest{}, apps...), widgets...) {
 		if exists(filepath.Join(m.dir, "docker-compose.app.yml")) {
@@ -998,15 +1076,43 @@ func generateOverride(p paths, apps, widgets []*Manifest, hubLibs []hubLib) stri
 
 	var hubVolumes []string
 	for _, l := range hubLibs {
-		hubVolumes = append(hubVolumes, fmt.Sprintf("      - %s:/app/%s:ro", l.rel, l.id))
+		hubVolumes = append(hubVolumes, fmt.Sprintf("      - %s:/app/libs/%s:ro", l.rel, l.id))
+	}
+
+	if mods.widgets {
+		hubVolumes = append(hubVolumes, "      - ../widgets:/app/widgets:ro")
+	}
+	if mods.plugins {
+		// Core components bundled into the hub glob plugin client files.
+		hubVolumes = append(hubVolumes, "      - ../plugins:/app/plugins:ro")
+	}
+
+	var services []string
+	if len(hubVolumes) > 0 {
+		services = append(services, "  hub:\n    volumes:\n"+strings.Join(hubVolumes, "\n")+"\n")
+	}
+	if mods.widgets {
+		services = append(services, "  registry:\n    volumes:\n      - ../widgets:/widgets:ro\n")
+	}
+	if mods.plugins {
+		// Core plugin servers, discovered at boot (core/auth-server/serverPlugins.js).
+		// NUCLEUS_PLUGINS records the installed set so adding or removing a plugin
+		// changes this service's config and `up` recreates it — its `node --watch`
+		// only restarts for files it already imported, never for a new plugin.
+		services = append(services, fmt.Sprintf("  auth-server:\n    environment:\n      NUCLEUS_PLUGINS: %q\n    volumes:\n      - ../plugins:/app/plugins:ro\n",
+			strings.Join(mods.pluginIDs, ",")))
+	}
+	if mods.pluginRuntime {
+		services = append(services, "  nginx:\n    depends_on:\n      - plugin-runtime\n")
+		services = append(services, pluginRuntimeService("", mods))
 	}
 
 	parts := []string{"# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually"}
 	if len(includes) > 0 {
 		parts = append(parts, "include:\n"+strings.Join(includes, "\n"))
 	}
-	if len(hubVolumes) > 0 {
-		parts = append(parts, "services:\n  hub:\n    volumes:\n"+strings.Join(hubVolumes, "\n"))
+	if len(services) > 0 {
+		parts = append(parts, "services:\n"+strings.TrimRight(strings.Join(services, "\n"), "\n"))
 	}
 	return strings.Join(parts, "\n\n") + "\n"
 }

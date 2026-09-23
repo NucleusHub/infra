@@ -5,6 +5,22 @@ config, the registry service, and the tooling that builds and deploys
 everything. Apps and widgets live in sibling repos (`../apps/*`, `../widgets/*`)
 and are auto-discovered from their manifests.
 
+## Modules
+
+The minimal working setup is **core + infra + hub**. Everything else is an
+optional sibling that can be added or removed at any time — `./nucleus up
+--build` (or `./production`) picks up the change:
+
+| Module | Where | What infra does when it's present |
+|---|---|---|
+| Apps | `../apps/<id>` (`nucleus.app.json`) | Includes its `docker-compose.app.yml`, routes it in nginx, builds its client. A `client/` without a `vite.config.js` is a **hub library**, linked at `hub/libs/<id>` and bundled into the hub (Pulse is the reference). |
+| Widgets | `../widgets` (`package.json` + `<id>/nucleus.widget.json`) | Mounts it into the hub and registry, builds the workspace. |
+| Plugins | `../plugins/<id>` (`nucleus.plugin.json`) | Mounts it into the hub and auth-server; see `../plugins/README.md` for the client and server extension points. |
+| Plugin runtime | `../plugin-runtime` | Runs the `/api/plugins` discovery service. Without it nginx answers `{"plugins":[]}`. |
+
+A module counts as installed only when it has that marker file, so an empty
+directory (e.g. one Docker recreated for an app's bind mount) is ignored.
+
 ## Commands
 
 All commands are run from the `infra/` directory (or by absolute path — they

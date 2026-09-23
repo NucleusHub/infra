@@ -75,6 +75,8 @@ There is **no** `enabled`/`disabled` state — enable/disable is future work.
 ## API
 
 Served by the `plugin-runtime` container, proxied by nginx at `/api/plugins`.
+The runtime is optional: without `../plugin-runtime` the generated nginx config
+answers `/api/plugins` with `{"plugins":[]}`.
 
 | Route | Returns |
 |-------|---------|

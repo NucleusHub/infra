@@ -177,6 +177,17 @@ func readManifests(baseDir, filename string) ([]*Manifest, error) {
 // apps). They live in core/ and are hardcoded here — nginx route + prod
 // container — exactly as in generate.js. The registry never sees them.
 func coreServices(p paths) []*Manifest {
+	authMounts := []string{
+		"../apps:/apps:ro",
+		"../core/locales:/core-locales:ro",
+		"../hub/locales:/hub-locales:ro",
+		"../state:/srv/state",
+	}
+	if optionalModules(p).plugins {
+		// Core plugins ship server code under /plugins (e.g. the What's New
+		// route mounted at /api/auth/whats-new), imported guarded. Read-only.
+		authMounts = append(authMounts, "../plugins:/app/plugins:ro")
+	}
 	return []*Manifest{
 		{
 			dir:  filepath.Join(p.root, "core", "auth-server"),
@@ -204,15 +215,7 @@ func coreServices(p paths) []*Manifest {
 				// The localization service reads shipped locale files off disk; the
 				// maintenance route writes the banner flag into ../state (nginx
 				// serves it read-only — see generateProdCompose's nginx mounts).
-				BindMounts: []string{
-					"../apps:/apps:ro",
-					"../core/locales:/core-locales:ro",
-					"../hub/locales:/hub-locales:ro",
-					"../state:/srv/state",
-					// Core plugins ship server code under /plugins (e.g. the
-					// What's New route mounted at /api/auth/whats-new). Read-only.
-					"../plugins:/app/plugins:ro",
-				},
+				BindMounts: authMounts,
 			},
 		},
 	}

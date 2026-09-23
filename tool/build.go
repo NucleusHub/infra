@@ -136,26 +136,31 @@ type builder struct {
 func (b *builder) planUnits() ([]*unit, error) {
 	p := b.p
 
+	// Optional modules every frontend globs into its bundle (core plugin
+	// extensions, the widget package). They're part of every fingerprint so that
+	// adding, removing or editing one rebuilds the bundles that pick it up; a
+	// missing root is simply skipped by srcHash.
+	optionalRoots := []string{filepath.Join(p.root, "plugins"), p.widgets}
+
 	// 1. Hub — bundles widget + library-app sources directly, so its fingerprint
-	//    covers hub, core, widgets and every library app (client/ w/o vite.config).
+	//    covers hub, core, the optional modules and every library app (client/
+	//    w/o vite.config).
 	forceSymlink(filepath.Join(p.root, "core"), filepath.Join(p.root, "hub", "core"))
 	forceSymlink(filepath.Join(p.root, "widgets"), filepath.Join(p.root, "hub", "widgets"))
+	forceSymlink(filepath.Join(p.root, "plugins"), filepath.Join(p.root, "hub", "plugins"))
 
-	hubRoots := []string{filepath.Join(p.root, "hub"), filepath.Join(p.root, "core"), filepath.Join(p.root, "widgets")}
-	appDirs, err := sortedDirs(p.apps)
+	hubRoots := append([]string{filepath.Join(p.root, "hub"), filepath.Join(p.root, "core")}, optionalRoots...)
+	hubLibs, err := findHubLibraries(p)
 	if err != nil {
 		return nil, err
 	}
-	for _, appID := range appDirs {
-		appDir := filepath.Join(p.apps, appID)
-		if isIgnored(appDir) {
-			continue
-		}
-		clientDir := filepath.Join(appDir, "client")
-		if exists(clientDir) && !exists(filepath.Join(clientDir, "vite.config.js")) {
-			forceSymlink(clientDir, filepath.Join(p.root, "hub", appID))
-			hubRoots = append(hubRoots, clientDir)
-		}
+	syncHubLibLinks(p, hubLibs)
+	for _, l := range hubLibs {
+		hubRoots = append(hubRoots, filepath.Join(p.apps, l.id, "client"))
+	}
+	appDirs, err := sortedDirs(p.apps)
+	if err != nil {
+		return nil, err
 	}
 
 	units := []*unit{{
@@ -173,7 +178,7 @@ func (b *builder) planUnits() ([]*unit, error) {
 			continue
 		}
 		forceSymlink(filepath.Join(p.root, "core"), filepath.Join(clientDir, "core"))
-		roots := []string{clientDir, filepath.Join(p.root, "core")}
+		roots := append([]string{clientDir, filepath.Join(p.root, "core")}, optionalRoots...)
 		if appID == "echo" {
 			// Echo bundles every app's echo integration via import.meta.glob.
 			forceSymlink(p.apps, filepath.Join(clientDir, "apps"))
@@ -193,13 +198,16 @@ func (b *builder) planUnits() ([]*unit, error) {
 		units = append(units, u)
 	}
 
-	// 3. Widgets (pnpm workspace).
-	wUnit := &unit{
-		name: "widgets", dir: p.widgets, manager: "pnpm", lock: "pnpm-lock.yaml",
-		distCheck: func() bool { return globExists(filepath.Join(p.widgets, "*", "client", "dist")) },
+	// 3. Widgets (pnpm workspace) — optional; a minimal setup (core + infra +
+	//    hub) has no widgets/ and simply skips this unit.
+	if exists(filepath.Join(p.widgets, "package.json")) {
+		wUnit := &unit{
+			name: "widgets", dir: p.widgets, manager: "pnpm", lock: "pnpm-lock.yaml",
+			distCheck: func() bool { return globExists(filepath.Join(p.widgets, "*", "client", "dist")) },
+		}
+		wUnit.fpRoots = []string{p.widgets}
+		units = append(units, wUnit)
 	}
-	wUnit.fpRoots = []string{p.widgets}
-	units = append(units, wUnit)
 
 	// Hub fingerprint roots.
 	units[0].fpRoots = hubRootsCopy
@@ -449,6 +457,9 @@ func globExists(pattern string) bool {
 
 func sortedDirs(base string) ([]string, error) {
 	entries, err := os.ReadDir(base)
+	if os.IsNotExist(err) {
+		return nil, nil // optional module dir (e.g. no apps/ installed)
+	}
 	if err != nil {
 		return nil, err
 	}
