@@ -19,16 +19,30 @@ CACHE_DIR="$INFRA/.build-cache"
 mkdir -p "$CACHE_DIR"
 HASH_FILE="$CACHE_DIR/tool.hash"
 
+# The binary must run directly on the host, so cross-compile for it even
+# though the build happens inside a Linux container.
+case "$(uname -s)" in
+  Darwin) GOOS=darwin ;;
+  Linux) GOOS=linux ;;
+  *) GOOS=linux ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) GOARCH=arm64 ;;
+  *) GOARCH=amd64 ;;
+esac
+
 # Hash the build inputs (test files are excluded — `go build` ignores them).
 tool_hash="$(
-  { for f in "$TOOL_DIR"/*.go; do case "$f" in *_test.go) ;; *) cat "$f" ;; esac; done
-    cat "$TOOL_DIR/go.mod" "$TOOL_DIR/fallback.html"
+  { for f in "$TOOL_DIR"/*.go; do case "$f" in (*_test.go) ;; (*) cat "$f" ;; esac; done
+    cat "$TOOL_DIR/go.mod" "$TOOL_DIR"/*.html
+    printf '%s %s' "$GOOS" "$GOARCH"
   } 2>/dev/null | sha1sum | cut -d' ' -f1
 )"
 
 if [ ! -x "$BIN" ] || [ "$(cat "$HASH_FILE" 2>/dev/null)" != "$tool_hash" ]; then
   echo "▶ Compiling nucleus infra tool (golang:1.23-alpine)…" >&2
-  docker run --rm -v "$REPO":/src -w /src/infra/tool -e CGO_ENABLED=0 \
+  docker run --rm -v "$REPO":/src -w /src/infra/tool \
+    -e CGO_ENABLED=0 -e GOOS="$GOOS" -e GOARCH="$GOARCH" \
     golang:1.23-alpine \
     go build -trimpath -ldflags "-s -w" -o nucleus . >&2
   echo "$tool_hash" > "$HASH_FILE"

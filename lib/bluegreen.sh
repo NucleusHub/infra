@@ -79,7 +79,7 @@ set_mongo_image() {
   export MONGO_IMAGE
   # Persist so bare `docker compose` invocations pick the same image.
   if [ -f "$INFRA/.env" ] && grep -q '^MONGO_IMAGE=' "$INFRA/.env"; then
-    sed -i "s|^MONGO_IMAGE=.*|MONGO_IMAGE=$MONGO_IMAGE|" "$INFRA/.env"
+    awk -v img="$MONGO_IMAGE" '/^MONGO_IMAGE=/ { $0 = "MONGO_IMAGE=" img } 1' "$INFRA/.env" > "$INFRA/.env.tmp" && mv "$INFRA/.env.tmp" "$INFRA/.env"
   else
     echo "MONGO_IMAGE=$MONGO_IMAGE" >> "$INFRA/.env"
   fi

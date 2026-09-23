@@ -42,7 +42,7 @@ export MONGO_IMAGE
 
 # Persist to .env so plain 'docker compose up' also gets the right image
 if [ -f .env ] && grep -q '^MONGO_IMAGE=' .env; then
-  sed -i "s|^MONGO_IMAGE=.*|MONGO_IMAGE=$MONGO_IMAGE|" .env
+  awk -v img="$MONGO_IMAGE" '/^MONGO_IMAGE=/ { $0 = "MONGO_IMAGE=" img } 1' .env > .env.tmp && mv .env.tmp .env
 else
   echo "MONGO_IMAGE=$MONGO_IMAGE" >> .env
 fi
