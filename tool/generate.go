@@ -745,7 +745,7 @@ services:
 
 	if needsMinio {
 		out.WriteString(`  minio:
-    image: quay.io/minio/minio:latest
+    image: minio/minio:latest
     command: server /data --console-address ":9001"
     restart: unless-stopped
 `)
