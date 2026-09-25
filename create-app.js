@@ -200,6 +200,9 @@ ${composeServer}  ${serviceClient}:
       nucleus.role: "app-client"
       nucleus.app: "${id}"
     environment:
+      # Host edits over the Docker VM file share (virtiofs) emit no inotify
+      # events, so Vite would keep serving stale modules — poll instead.
+      CHOKIDAR_USEPOLLING: "true"
       API_TARGET: http://${serviceServer}:${serverPort ?? ''}
       NUCLEUS_HOST: \${NUCLEUS_HOST:-nucleus.olm-altair.ts.net}
     volumes:
@@ -325,9 +328,12 @@ import AuthGuard from '@core/auth/AuthGuard.vue'
 
 <template>
   <BackgroundBlobs />
-  <AuthGuard>
-    <RouterView />
-  </AuthGuard>
+  <!-- The backdrop is an opaque fixed z-0 layer: content must sit above it. -->
+  <div class="relative z-10">
+    <AuthGuard>
+      <RouterView />
+    </AuthGuard>
+  </div>
 </template>
 `
 
