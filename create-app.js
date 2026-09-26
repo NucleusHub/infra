@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// Scaffolds a new Nucleus app under apps/<id>/ that is plug-and-play out of the
-// box: a manifest the registry + infra tool auto-discover, a Vite client wired
-// to the shared @core components (BackgroundBlobs shader, AuthGuard, AppHeader,
-// liquid-glass), an optional Express server with auth + health, an optional Echo
-// integration, and its own git repo. Drop the result in, rebuild Docker, done.
-//
-//   node infra/create-app.js <id> [--name "Display Name"] [--description "..."]
-//                                  [--no-server] [--echo] [--no-git]
-//
-// Ports (client dev + server) are auto-allocated to the next free slot so a new
-// app never collides with an existing one.
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync, symlinkSync } from 'fs'
 import { join, resolve } from 'path'
 import { fileURLToPath } from 'url'
@@ -20,12 +9,9 @@ const ROOT = resolve(INFRA, '..')
 const APPS_DIR = join(ROOT, 'apps')
 const WIDGETS_DIR = join(ROOT, 'widgets')
 
-// ── Args ─────────────────────────────────────────────────────────────────────
-
 const argv = process.argv.slice(2)
 const VALUE_OPTS = new Set(['name', 'description'])
 
-// Parse into positionals + options in one pass; --name/--description take a value.
 const positionals = []
 const options = {}
 for (let i = 0; i < argv.length; i++) {
@@ -63,12 +49,8 @@ const pascal = id.split('-').map(s => s[0].toUpperCase() + s.slice(1)).join('')
 const serviceClient = `${id}-client`
 const serviceServer = `${id}-server`
 
-// ── Port allocation ───────────────────────────────────────────────────────────
-
-// Scan existing manifests for ports in use; seed with reserved infra ports so we
-// never hand out one that collides with a core service.
 function usedPorts() {
-  const server = new Set([3005, 4000]) // auth-server, registry
+  const server = new Set([3005, 4000])
   const client = new Set()
   for (const [base, file] of [[APPS_DIR, 'nucleus.app.json'], [WIDGETS_DIR, 'nucleus.widget.json']]) {
     if (!existsSync(base)) continue
@@ -91,8 +73,6 @@ const nextFree = (set, start) => { let p = start; while (set.has(p)) p++; return
 const { server: usedServer, client: usedClient } = usedPorts()
 const clientPort = nextFree(usedClient, 5180)
 const serverPort = withServer ? nextFree(usedServer, 3010) : null
-
-// ── File templates ─────────────────────────────────────────────────────────────
 
 const files = {}
 
@@ -121,13 +101,10 @@ ${withServer ? `- **Server** — Express + Mongo, port \`${serverPort}\`, API un
 The \`client/core\` symlink points at the monorepo's \`core/\` so \`@core/*\` resolves.
 `
 
-// Manifest — discovered by the infra tool (infra/tool) and the registry service.
 const manifest = {
   id,
   name,
   description,
-  // Every module owns its SemVer version independently of the platform.
-  // Starts at 0.1.0 (pre-1.0 development). See infra/nucleus-docs/VERSIONING.md.
   version: '0.1.0',
   manifestVersion: 1,
   compatibility: { nucleus: '>=0.1.0 <1.0.0' },
@@ -161,7 +138,6 @@ files['icon.svg'] = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
 </svg>
 `
 
-// Dev compose — base docker-compose.yml includes this via the generated override.
 const composeServer = withServer ? `  ${serviceServer}:
     build:
       context: ./server
@@ -219,8 +195,6 @@ ${composeServer}  ${serviceClient}:
       # (mirrors the committed client/core symlink used by host builds).
       - ../../core:/app/core:ro
 ${withServer ? `    depends_on:\n      ${serviceServer}:\n        condition: service_healthy\n` : ''}${withServer ? `\nvolumes:\n  ${id.replace(/-/g, '_')}_server_modules:\n` : ''}`
-
-// ── Client ───────────────────────────────────────────────────────────────────
 
 files['client/package.json'] = JSON.stringify({
   name: `nucleus-${id}-client`,
@@ -372,8 +346,6 @@ import AppHeader from '@core/AppHeader.vue'
 </template>
 `
 
-// ── Server ───────────────────────────────────────────────────────────────────
-
 if (withServer) {
   files['server/package.json'] = JSON.stringify({
     name: `nucleus-${id}-server`,
@@ -435,7 +407,6 @@ mongoose
   })
 `
 
-  // Verifies the nucleus_token cookie issued by the auth-server; populates req.profile.
   files['server/middleware/auth.js'] = `import jwt from 'jsonwebtoken'
 
 const secret = () => process.env.JWT_SECRET || 'nucleus-jwt-secret'
@@ -467,8 +438,6 @@ router.get('/', (req, res) => {
 export default router
 `
 }
-
-// ── Echo integration (optional) ────────────────────────────────────────────────
 
 if (withEcho) {
   files['echo/manifest.echo.json'] = JSON.stringify({
@@ -521,20 +490,13 @@ defineProps({ message: { type: Object, required: true } })
 `
 }
 
-// ── Write everything ───────────────────────────────────────────────────────────
-
 for (const [rel, content] of Object.entries(files)) {
   const full = join(appDir, rel)
   mkdirSync(join(full, '..'), { recursive: true })
   writeFileSync(full, content)
 }
 
-// Committed relative symlink so @core/* resolves on a fresh clone and host
-// builds, without waiting for infra/production to create it. From apps/<id>/client/
-// the monorepo core/ is three levels up.
 symlinkSync('../../../core', join(appDir, 'client', 'core'))
-
-// ── Git ─────────────────────────────────────────────────────────────────────
 
 if (withGit) {
   try {
@@ -545,8 +507,6 @@ if (withGit) {
     console.warn(`  ⚠ git init/commit skipped: ${err.message.split('\n')[0]}`)
   }
 }
-
-// ── Done ─────────────────────────────────────────────────────────────────────
 
 console.log(`✓ Created apps/${id}`)
 console.log(`    route        ${route}`)

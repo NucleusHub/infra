@@ -1,14 +1,4 @@
 #!/bin/sh
-# Ensure the compiled `nucleus` infra tool (infra/tool) is up to date.
-#
-# The tool is compiled inside a golang:1.23-alpine container — exactly like
-# apps/anchor — so no host Go toolchain is required. The binary is a static
-# CGO-free build that runs directly on the host and shells out to npm / pnpm /
-# docker during `nucleus build`.
-#
-# Recompilation happens only when the Go sources change (cheap, ~seconds).
-# Prints the path to the binary on stdout; all progress goes to stderr so callers
-# can capture the path with: BIN="$(infra/ensure-tool)"
 set -e
 
 INFRA="$(cd "$(dirname "$0")" && pwd)"
@@ -19,8 +9,6 @@ CACHE_DIR="$INFRA/.build-cache"
 mkdir -p "$CACHE_DIR"
 HASH_FILE="$CACHE_DIR/tool.hash"
 
-# The binary must run directly on the host, so cross-compile for it even
-# though the build happens inside a Linux container.
 case "$(uname -s)" in
   Darwin) GOOS=darwin ;;
   Linux) GOOS=linux ;;
@@ -31,7 +19,6 @@ case "$(uname -m)" in
   *) GOARCH=amd64 ;;
 esac
 
-# Hash the build inputs (test files are excluded — `go build` ignores them).
 tool_hash="$(
   { for f in "$TOOL_DIR"/*.go; do case "$f" in (*_test.go) ;; (*) cat "$f" ;; esac; done
     cat "$TOOL_DIR/go.mod" "$TOOL_DIR"/*.html

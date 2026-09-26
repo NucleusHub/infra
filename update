@@ -1,10 +1,4 @@
 #!/bin/sh
-# Pull latest from all Nucleus git repos
-# Usage: ./update [repo...]
-#   ./update              — pull everything
-#   ./update hub infra    — pull hub and infra only
-#   ./update apps         — pull all apps
-#   ./update apps/watchlist — pull one app
 cd "$(dirname "$0")"
 INFRA=$(pwd)
 ROOT=$(dirname "$INFRA")
@@ -13,7 +7,6 @@ UPDATED=0
 FAILED=0
 FILTERS="$*"
 
-# Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'

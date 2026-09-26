@@ -8,30 +8,14 @@ import (
 	"strconv"
 )
 
-// bump increments a module's SemVer version in place. It targets:
-//   - an app       → apps/<id>/nucleus.app.json
-//   - a widget     → widgets/<id>/nucleus.widget.json
-//   - the platform → infra/nucleus.json   (module id "nucleus" or "platform")
-//
-// Only the top-level "version" string is rewritten; the rest of the manifest is
-// left byte-for-byte untouched (no reserialization → no key reordering).
-//
-//	nucleus bump <module> <part> [channel]
-//	  part:    major | minor | patch | pre | release
-//	  channel: alpha | beta | rc   (optional)
-//
-// See infra/nucleus-docs/VERSIONING.md for the full rules.
-
-// channelRank orders prerelease channels; they only ever advance forward.
 var channelRank = map[string]int{"alpha": 1, "beta": 2, "rc": 3}
 
-// versionField matches the first top-level `"version": "…"` in a manifest.
 var versionField = regexp.MustCompile(`("version"\s*:\s*")([^"]*)(")`)
 
 type semver struct {
 	major, minor, patch int
-	channel             string // "" | alpha | beta | rc
-	pre                 int    // prerelease number (0 when channel == "")
+	channel             string
+	pre                 int
 }
 
 func (v semver) String() string {
@@ -60,12 +44,6 @@ func parseSemver(s string) (semver, error) {
 	return v, nil
 }
 
-// applyBump computes the next version. Rules:
-//   - major|minor|patch          bump that component, clear any prerelease
-//   - major|minor|patch <chan>   bump that component, then start -<chan>.1
-//   - pre                        advance the current prerelease number
-//   - pre <chan>                 promote the prerelease channel (forward only), reset to .1
-//   - release                    drop the prerelease suffix (finalize)
 func applyBump(v semver, part, channel string) (semver, error) {
 	switch part {
 	case "major":
@@ -98,7 +76,6 @@ func applyBump(v semver, part, channel string) (semver, error) {
 	default:
 		return v, fmt.Errorf("unknown part %q — use major|minor|patch|pre|release", part)
 	}
-	// major|minor|patch reach here; an optional channel starts a prerelease.
 	if channel != "" {
 		v.channel = channel
 		v.pre = 1
@@ -106,8 +83,6 @@ func applyBump(v semver, part, channel string) (semver, error) {
 	return v, nil
 }
 
-// resolveModuleFile locates the manifest holding a module's version and returns
-// its path plus a human label for messages.
 func resolveModuleFile(p paths, module string) (string, string, error) {
 	if module == "nucleus" || module == "platform" {
 		f := filepath.Join(p.infra, "nucleus.json")
@@ -153,7 +128,7 @@ func runBump(p paths, args []string) error {
 	if loc == nil {
 		return fmt.Errorf("%s has no \"version\" field to bump — add one first (see VERSIONING.md)", label)
 	}
-	current := string(data[loc[4]:loc[5]]) // group 2 = the version string
+	current := string(data[loc[4]:loc[5]])
 	cur, err := parseSemver(current)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
@@ -163,7 +138,6 @@ func runBump(p paths, args []string) error {
 		return err
 	}
 
-	// Splice the new version in, leaving everything else byte-identical.
 	out := append([]byte{}, data[:loc[4]]...)
 	out = append(out, next.String()...)
 	out = append(out, data[loc[5]:]...)

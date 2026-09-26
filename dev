@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Starts the Nucleus dev stack (no-op if it's already running).
-#
-# Thin shim around the `nucleus` infra tool (infra/tool, Go): it compiles the
-# tool on demand (in a golang:1.23-alpine container — no host Go needed) and
-# hands off to `nucleus dev`, which picks the right MongoDB image for the CPU,
-# regenerates nginx + compose configs from manifests, then brings up the dev
-# stack (docker-compose.yml + the generated override) with `up -d` — unless its
-# containers are already running, in which case it does nothing.
-#
-# Run from any directory — paths are resolved relative to this script.
 set -euo pipefail
 
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

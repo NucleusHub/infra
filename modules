@@ -1,15 +1,4 @@
 #!/usr/bin/env bash
-# Install / remove Nucleus apps, plugins and widgets from the GitHub org, then
-# apply the change (infra/production by default, --dev for the dev stack).
-#
-#   ./modules                      list installed + available modules
-#   ./modules install shelf echo   install (with dependencies), then apply
-#   ./modules remove spotify       remove, then apply
-#   ./modules apply [--dev]        rebuild the stack from the checkout
-#   ./modules ui                   the same in a small local web UI
-#
-# Thin shim around `nucleus modules` (infra/tool, Go) — compiled on demand in a
-# golang:1.23-alpine container, no host Go needed. Run from any directory.
 set -euo pipefail
 
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

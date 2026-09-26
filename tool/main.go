@@ -1,13 +1,3 @@
-// Command nucleus is the Nucleus infra tool. It replaces the old
-// infra/generate.js (config generation) and the infra/build bash script
-// (incremental frontend build + deploy) with a single compiled binary.
-//
-//	nucleus generate   regenerate nginx + docker-compose configs from manifests
-//	nucleus build      build all frontends incrementally, then deploy the stack
-//
-// It is a drop-in replacement: `nucleus generate` emits byte-identical output to
-// the previous generate.js, and `nucleus build` preserves the bash script's
-// incremental-cache contract (with the units now built in parallel for speed).
 package main
 
 import (
@@ -16,10 +6,6 @@ import (
 	"path/filepath"
 )
 
-// Paths are resolved relative to the infra/ directory, exactly like the JS
-// tool resolved them from import.meta.url. The binary is run from infra/ (the
-// build shim cd's there first), so we anchor on the working directory and fall
-// back to NUCLEUS_INFRA when set.
 type paths struct {
 	infra, root, apps, widgets string
 }

@@ -19,7 +19,6 @@ func TestLoadEnv(t *testing.T) {
 			t.Errorf("%s = %q, want %q", k, got, want)
 		}
 	}
-	// Missing file is not an error.
 	if err := loadEnv(filepath.Join(dir, "nope")); err != nil {
 		t.Errorf("missing .env should be tolerated, got %v", err)
 	}
@@ -47,7 +46,6 @@ func TestSrcHashDeterministicAndSensitive(t *testing.T) {
 		t.Fatalf("srcHash not deterministic: %s != %s", h1, h2)
 	}
 
-	// Changing excluded paths must NOT change the hash.
 	os.WriteFile(filepath.Join(sub, "node_modules", "x.js"), []byte("dep2"), 0o644)
 	os.WriteFile(filepath.Join(sub, "dist", "out.js"), []byte("built2"), 0o644)
 	os.WriteFile(filepath.Join(sub, "debug.log"), []byte("log2"), 0o644)
@@ -55,7 +53,6 @@ func TestSrcHashDeterministicAndSensitive(t *testing.T) {
 		t.Errorf("excluded paths affected hash: %s != %s", h3, h1)
 	}
 
-	// Changing a real source file MUST change the hash.
 	os.WriteFile(filepath.Join(sub, "a.js"), []byte("changed"), 0o644)
 	if h4, _ := srcHash(root, []string{sub}); h4 == h1 {
 		t.Error("source change did not change hash")
@@ -63,7 +60,7 @@ func TestSrcHashDeterministicAndSensitive(t *testing.T) {
 }
 
 func TestHasAVXNoPanic(t *testing.T) {
-	_ = hasAVX() // just ensure it doesn't panic on this platform
+	_ = hasAVX()
 }
 
 func TestForceSymlinkReplaces(t *testing.T) {
@@ -74,13 +71,10 @@ func TestForceSymlinkReplaces(t *testing.T) {
 	os.Mkdir(target2, 0o755)
 	link := filepath.Join(dir, "link")
 
-	// Links are written relative to their own directory; here target and link
-	// are siblings in dir, so the relative target is just the basename.
 	forceSymlink(target1, link)
 	if got, _ := os.Readlink(link); got != "t1" {
 		t.Fatalf("link -> %q, want %q", got, "t1")
 	}
-	// Replacing an existing symlink should succeed (ln -sfn semantics).
 	forceSymlink(target2, link)
 	if got, _ := os.Readlink(link); got != "t2" {
 		t.Fatalf("after replace link -> %q, want %q", got, "t2")

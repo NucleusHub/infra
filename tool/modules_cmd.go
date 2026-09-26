@@ -1,19 +1,5 @@
 package main
 
-// `nucleus modules` — the CLI and the local web UI over modules.go.
-//
-//	nucleus modules                         list what's installed and available
-//	nucleus modules install <id>... [flags] install (with dependencies), then apply
-//	nucleus modules remove  <id>... [flags] remove (with what depends on it), then apply
-//	nucleus modules remove --all [kind...]  remove everything (or every app/plugin/widget/service)
-//	nucleus modules apply [--dev]           rebuild the stack from the checkout
-//	nucleus modules ui [--addr A]           the same, in a browser
-//
-// Flags: --dev applies with the dev stack instead of production, --no-apply
-// only changes the checkout, --yes skips the confirmation prompt, --with-extras
-// accepts the plan's optional follow-up (e.g. removing all widgets together
-// with the widget launcher) without asking.
-
 import (
 	"bufio"
 	"bytes"
@@ -37,9 +23,6 @@ import (
 	"time"
 )
 
-// The UI is one page plus the self-hosted fonts it's set in (ui/fonts), all
-// embedded so the binary serves it with no external requests.
-//
 //go:embed ui
 var modulesUI embed.FS
 
@@ -58,7 +41,6 @@ func runModules(p paths, args []string) error {
 	noOpen := fs.Bool("no-open", false, "ui: don't open a browser")
 	all := fs.Bool("all", false, "remove: every installed module (optionally only the given kinds)")
 	withExtras := fs.Bool("with-extras", false, "also do the plan's optional follow-up (e.g. remove all widgets with the widget launcher)")
-	// Allow flags after positional ids (install a b --dev).
 	var ids []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -164,15 +146,11 @@ func runModules(p paths, args []string) error {
 	return fmt.Errorf("unknown modules command %q (list, install, remove, apply, ui)", sub)
 }
 
-// kindNames maps what --all accepts to kinds.
 var kindNames = map[string]moduleKind{
 	"app": kindApp, "apps": kindApp, "plugin": kindPlugin, "plugins": kindPlugin,
 	"widget": kindWidget, "widgets": kindWidget, "service": kindService, "services": kindService,
 }
 
-// applyPlan rebuilds the stack after a plan ran, then tidies what Docker got
-// wrong about it: dev containers still mounting replaced/deleted folders are
-// recreated, and folders Docker recreated for removed modules are deleted.
 func applyPlan(p paths, pl modulePlan, mode applyMode, out io.Writer) error {
 	err := applyModules(p, mode, out)
 	if err == nil && mode == applyDev {
@@ -252,9 +230,6 @@ func confirm(q string) bool {
 	return a == "y" || a == "yes"
 }
 
-// ── Web UI ──────────────────────────────────────────────────────────────────
-
-// job is the one install/remove/apply run the UI can have in flight.
 type job struct {
 	mu      sync.Mutex
 	running bool
@@ -294,8 +269,6 @@ func serveModulesUI(p paths, state *moduleState, addr string, open bool) error {
 	return serveHandler(mux, addr, token, open)
 }
 
-// modulesHandler is the UI's HTTP surface: the page itself, and a JSON API
-// that requires the per-run token in X-Modules-Token.
 func modulesHandler(p paths, state *moduleState, token string) http.Handler {
 	cur := &job{}
 	authed := func(h http.HandlerFunc) http.HandlerFunc {

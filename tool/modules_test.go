@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// testTree lays out a minimal Nucleus checkout (core + infra + hub) in a temp
-// dir; tests add optional modules on top.
 func testTree(t *testing.T) paths {
 	t.Helper()
 	root := t.TempDir()
@@ -28,8 +26,6 @@ func write(t *testing.T, path, content string) {
 
 func TestMinimalSetupHasNoOptionalModules(t *testing.T) {
 	p := testTree(t)
-	// Empty dirs (what Docker leaves behind for a missing bind-mount source) must
-	// not count as installed modules.
 	os.MkdirAll(filepath.Join(p.root, "plugins"), 0o755)
 	os.MkdirAll(p.widgets, 0o755)
 
@@ -87,7 +83,6 @@ func TestSyncHubLibLinksAddsAndPrunes(t *testing.T) {
 		t.Fatalf("hub/libs/dash → %q, %v; want %q", resolved, err, want)
 	}
 
-	// A real file in hub/libs is never touched; a stale link is pruned.
 	write(t, filepath.Join(libs, "keep.txt"), "x")
 	syncHubLibLinks(p, nil)
 	if _, err := os.Lstat(filepath.Join(libs, "dash")); !os.IsNotExist(err) {

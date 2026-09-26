@@ -10,40 +10,21 @@ import (
 	"strings"
 )
 
-// anchorFallbackHTML is the degraded-mode page served when an upstream is
-// unreachable. Embedded verbatim (it contains literal double quotes but no
-// single quotes, backticks, or `$`) so it stays byte-identical to generate.js.
-//
 //go:embed fallback.html
 var anchorFallbackHTML string
 
-// defaultHost is the public hostname baked into the templates. It is replaced
-// with NUCLEUS_HOST wherever it appears, so the literal here is just the
-// fallback when nothing is configured.
 const defaultHost = "nucleus.olm-altair.ts.net"
 
-// Blue/green networking. The two networks are external (created once by the
-// deploy bootstrap) so the always-on data stack, both color stacks, and the
-// edge proxy can all attach to them and resolve each other by service name /
-// alias across compose projects.
 const (
-	dataNet = "nucleus-data-net" // servers ↔ mongo/redis/minio
-	edgeNet = "nucleus-edge-net" // edge proxy ↔ each color's web nginx
+	dataNet = "nucleus-data-net"
+	edgeNet = "nucleus-edge-net"
 )
 
-// dataServices are the stateful backing services. They live in the always-on
-// nucleus-data stack (shared by both colors), so a color stack never declares a
-// depends_on against them — it reaches them over dataNet instead.
 var dataServices = map[string]bool{"mongo": true, "redis": true, "minio": true}
 
-// stackStartPeriodFloor is the minimum healthcheck start_period for color-stack
-// servers. All servers boot at once during a deploy, so on a small host the
-// startup CPU spike can make a healthy-but-slow server look unhealthy; this floor
-// keeps such a server in "starting" long enough to avoid aborting the deploy.
+// Floor keeps a slow server "starting" when all servers boot at once, so it doesn't abort the deploy.
 const stackStartPeriodFloor = "120s"
 
-// maxSeconds returns whichever of two "<n>s" durations is larger. A value that
-// isn't a plain "<n>s" (or is smaller than the floor) falls back to floor.
 func maxSeconds(v, floor string) string {
 	sec := func(s string) int {
 		n, err := strconv.Atoi(strings.TrimSuffix(s, "s"))
@@ -58,9 +39,6 @@ func maxSeconds(v, floor string) string {
 	return floor
 }
 
-// nucleusHost resolves the public hostname: the NUCLEUS_HOST environment
-// variable (set by loadEnv in build/dev), else the value in infra/.env, else
-// the default. Single source of truth for the nginx server_name and the links.
 func nucleusHost(p paths) string {
 	if h := strings.TrimSpace(os.Getenv("NUCLEUS_HOST")); h != "" {
 		return h
@@ -80,22 +58,14 @@ func fallbackLocation() string {
     }`
 }
 
-// modules reports which optional top-level modules are installed. A minimal
-// setup is core + infra + hub; everything else is mounted, built and routed
-// only when installed, so a missing module never breaks `docker compose up` (a
-// missing build context is a hard error, and a missing bind-mount source would
-// be silently recreated as an empty dir).
 type modules struct {
-	plugins       bool     // ../plugins — core/app plugin code
-	pluginIDs     []string // installed plugin dirs, sorted
-	pluginRuntime bool     // ../plugin-runtime — the /api/plugins discovery service
-	widgets       bool     // ../widgets — widget packages
+	plugins       bool
+	pluginIDs     []string
+	pluginRuntime bool
+	widgets       bool
 }
 
-// optionalModules detects the installed modules. "Installed" means the module
-// has real content, not just that its directory exists: an app's own compose
-// file may bind-mount ../plugins or ../widgets, which makes Docker recreate
-// them as empty dirs.
+// Docker recreates missing bind-mount sources as empty dirs, so require real content.
 func optionalModules(p paths) modules {
 	manifests, _ := filepath.Glob(filepath.Join(p.root, "plugins", "*", "nucleus.plugin.json"))
 	var ids []string
@@ -111,9 +81,6 @@ func optionalModules(p paths) modules {
 	}
 }
 
-// pluginsLocation proxies /api/plugins to the plugin runtime when it's installed,
-// and otherwise answers with an empty registry so clients see "no plugins"
-// rather than a 502.
 func pluginsLocation(p paths) string {
 	if !optionalModules(p).pluginRuntime {
 		return `
@@ -135,8 +102,6 @@ func pluginsLocation(p paths) string {
     }`
 }
 
-// runGenerate is the entry point for `nucleus generate`. It mirrors the main
-// body of generate.js: discover, validate, then emit the four config files.
 func runGenerate(p paths) error {
 	apps, widgets, err := discover(p)
 	if err != nil {
@@ -152,27 +117,17 @@ func runGenerate(p paths) error {
 	fmt.Printf("Widgets: %s\n", joinIDsOr(widgets, "none"))
 	fmt.Printf("Hub libs: %s\n", joinLibsOr(hubLibs, "none"))
 
-	validate(p, apps, widgets) // exits 1 on manifest errors
+	validate(p, apps, widgets)
 
-	// The nginx templates carry the public host (server_name + HTTPS redirect);
-	// swap the placeholder default for the configured NUCLEUS_HOST.
 	host := nucleusHost(p)
 	withHost := func(s string) string { return strings.ReplaceAll(s, defaultHost, host) }
 
 	writes := []struct {
 		path, content, log string
 	}{
-		// nginx configs go into per-env DIRECTORIES (conf.d/ dev, prod/ prod) that
-		// are bind-mounted as a whole. Mounting the directory (not the single file)
-		// means a regenerated config — a new inode — is visible to a running nginx,
-		// so `nginx -s reload` applies it without recreating the container. A
-		// single-file bind mount pins the container to the original inode, which is
-		// why a stale config survived reloads until now.
+		// Mount config dirs, not files: a single-file bind mount pins the old inode across reloads.
 		{filepath.Join(p.infra, "nginx", "conf.d", "default.conf"), withHost(generateNginx(p, apps, widgets)), "→ nginx/conf.d/default.conf"},
 		{filepath.Join(p.infra, "docker-compose.override.yml"), generateOverride(p, apps, widgets, hubLibs), "→ docker-compose.override.yml"},
-		// Blue/green production: an always-on shared data stack, a color-swappable
-		// app stack (run with -p nucleus-blue|nucleus-green), and an always-on edge
-		// proxy that owns 80/443+TLS and forwards to whichever color is active.
 		{filepath.Join(p.infra, "nginx", "stack", "default.conf"), withHost(generateStackNginx(p, apps, widgets)), "→ nginx/stack/default.conf"},
 		{filepath.Join(p.infra, "nginx", "edge", "default.conf"), withHost(generateEdgeNginx(p)), "→ nginx/edge/default.conf"},
 		{filepath.Join(p.infra, "docker-compose.data.yml"), generateDataCompose(p, apps, widgets), "→ docker-compose.data.yml"},
@@ -189,9 +144,7 @@ func runGenerate(p paths) error {
 		fmt.Println(w.log)
 	}
 
-	// active.inc is the edge proxy's live switch state (set $active web-<color>),
-	// owned by the deploy/switch helper. Seed a safe default only when it doesn't
-	// exist yet — never clobber the running target on a regenerate.
+	// Never clobber the live switch state on regenerate.
 	activeInc := filepath.Join(p.infra, "nginx", "edge", "active.inc")
 	if !exists(activeInc) {
 		if err := os.WriteFile(activeInc, []byte("set $active web-blue;\n"), 0o644); err != nil {
@@ -202,8 +155,6 @@ func runGenerate(p paths) error {
 	return nil
 }
 
-// discover reads app + widget manifests and drops any that collide with a core
-// service name (e.g. a stale apps/auth) so we never emit duplicate keys.
 func discover(p paths) (apps, widgets []*Manifest, err error) {
 	apps, err = readManifests(p.apps, "nucleus.app.json")
 	if err != nil {
@@ -260,8 +211,6 @@ func joinLibsOr(libs []hubLib, fallback string) string {
 	return strings.Join(ids, ", ")
 }
 
-// ── Nginx ────────────────────────────────────────────────────────────────────
-
 func nginxLocation(r Route) string {
 	ws := ""
 	if r.Websocket {
@@ -307,8 +256,6 @@ func nginxLocation(r Route) string {
     }`, r.Path, corsBlock, sizeBlock, fbBlock, r.Upstream, ws)
 }
 
-// collectRoutes gathers all routes across apps+widgets+core, tagging the SPA
-// route for fallback, then sorts longest-path-first (stable, like JS sort).
 func collectRoutes(p paths, apps, widgets []*Manifest, tagFallback bool) []Route {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
 	var routes []Route
@@ -323,8 +270,6 @@ func collectRoutes(p paths, apps, widgets []*Manifest, tagFallback bool) []Route
 	return routes
 }
 
-// sortByPathLenDesc sorts longest path first. JS Array.sort is not guaranteed
-// stable across all lengths, but V8's is stable; sort.SliceStable matches it.
 func sortByPathLenDesc(routes []Route) {
 	sort.SliceStable(routes, func(i, j int) bool {
 		return len(routes[j].Path) < len(routes[i].Path)
@@ -402,14 +347,6 @@ server {
 `
 }
 
-// ── Stack (color) Nginx ──────────────────────────────────────────────────────
-
-// generateStackNginx emits the per-color web nginx config. It is identical to
-// the old prod nginx EXCEPT it terminates no TLS and does no HTTP→HTTPS
-// redirect — the always-on edge proxy owns 80/443+TLS and forwards plain HTTP to
-// this server. Route upstreams are Docker service names, which resolve to *this
-// color's* servers inside the color's own compose project, so the same config
-// serves both blue and green unchanged.
 func generateStackNginx(p paths, apps, widgets []*Manifest) string {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
 
@@ -490,16 +427,7 @@ server {
 `
 }
 
-// ── Edge Nginx ───────────────────────────────────────────────────────────────
-
-// generateEdgeNginx emits the always-on front proxy config: it owns 80/443+TLS
-// and blindly forwards everything to the active color ($active, set by the
-// separately-mounted active.inc). Switching colors = rewrite active.inc and
-// `+"`nginx -s reload`"+` — no restart, no config regeneration.
-//
-// active.inc is deliberately named *.inc (not *.conf) so nginx's default
-// `+"`include /etc/nginx/conf.d/*.conf`"+` does NOT load it at http scope; it is
-// pulled in only by the explicit include inside the server block below.
+// *.inc so the default conf.d/*.conf include doesn't load it at http scope.
 func generateEdgeNginx(p paths) string {
 	return `# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
 # Blue/green edge proxy: TLS terminator on 80/443, forwards to the active color.
@@ -556,8 +484,6 @@ server {
 `
 }
 
-// ── Prod Compose ─────────────────────────────────────────────────────────────
-
 func labelsBlock(role, app string, depends []string) string {
 	var b strings.Builder
 	b.WriteString("    labels:\n")
@@ -573,19 +499,12 @@ func labelsBlock(role, app string, depends []string) string {
 	return b.String()
 }
 
-// relFromRoot turns an absolute manifest dir into the `../<rel>` path used in
-// compose contexts and volume mounts (forward slashes, like JS).
 func relFromRoot(p paths, dir string) string {
 	rel := strings.TrimPrefix(dir, p.root+string(filepath.Separator))
 	rel = filepath.ToSlash(rel)
 	return "../" + rel
 }
 
-// stackServerBlock emits one app/auth/widget server for the color stack. It is
-// the old prodServerBlock with two blue/green changes: (1) depends_on against
-// stateful data services is dropped — mongo/redis/minio live in the always-on
-// nucleus-data stack, reached over the shared external network, not within this
-// project; (2) the service is attached to the internal + data networks.
 func stackServerBlock(p paths, m *Manifest) string {
 	s := m.Server
 	relDir := relFromRoot(p, m.dir)
@@ -598,11 +517,6 @@ func stackServerBlock(p paths, m *Manifest) string {
 	if startPeriod == "" {
 		startPeriod = "10s"
 	}
-	// Blue/green boots every server at once, so on a small host the CPU spike can
-	// make a slow-but-fine server's health check fail long enough to be marked
-	// unhealthy — which aborts `docker compose up`. Floor the start_period (during
-	// which failing checks count as "starting", not "unhealthy") so startup
-	// contention doesn't fail the deploy. Genuine failures still surface after it.
 	startPeriod = maxSeconds(startPeriod, stackStartPeriodFloor)
 
 	envLines := []string{fmt.Sprintf("      PORT: %d", s.Port)}
@@ -620,7 +534,6 @@ func stackServerBlock(p paths, m *Manifest) string {
 		volumeLines = append(volumeLines, "      - "+v)
 	}
 
-	// Only in-project dependencies belong here; data services are external.
 	var dependsLines []string
 	for _, d := range s.Depends {
 		if dataServices[d] {
@@ -657,8 +570,6 @@ func stackServerBlock(p paths, m *Manifest) string {
 	return b.String()
 }
 
-// backingNeeds reports which stateful services any server depends on. Shared by
-// the data-stack generator (which services to run) and kept in one place.
 func backingNeeds(p paths, apps, widgets []*Manifest) (mongo, minio, redis bool) {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
 	for _, m := range all {
@@ -679,16 +590,6 @@ func backingNeeds(p paths, apps, widgets []*Manifest) (mongo, minio, redis bool)
 	return
 }
 
-// ── Data compose (always-on, shared by both colors) ──────────────────────────
-
-// generateDataCompose emits the stateful backing stack. It runs once and stays
-// up across deploys:
-//
-//	docker compose -p nucleus-data -f docker-compose.data.yml up -d
-//
-// Volumes are pinned to the original nucleus_* names so an existing install's
-// data is reused verbatim (no migration). Services attach to the external
-// dataNet under their plain service names, which is how color servers reach them.
 func generateDataCompose(p paths, apps, widgets []*Manifest) string {
 	needsMongo, needsMinio, needsRedis := backingNeeds(p, apps, widgets)
 
@@ -786,20 +687,6 @@ services:
 	return out.String()
 }
 
-// ── Stack compose (blue/green color template) ────────────────────────────────
-
-// generateStackCompose emits the color-swappable app stack: registry,
-// plugin-runtime (when installed), every app/auth/widget server, and a per-color web nginx. It is
-// parameterized by ${NUCLEUS_COLOR} (project suffix, network alias, snapshot
-// dir) and ${NUCLEUS_WEB_PORT} (debug host port), so ONE file runs both colors:
-//
-//	NUCLEUS_COLOR=green NUCLEUS_WEB_PORT=8082 \
-//	  docker compose -p nucleus-green -f docker-compose.stack.yml up -d --build
-//
-// 'web' serves this color's static snapshot (../.stacks/<color>/srv) and proxies
-// /api/* to this color's servers; the edge proxy forwards production traffic to
-// the web-<color> alias. Upload volumes are pinned to their original nucleus_*
-// names and shared across colors (user uploads persist across deploys).
 func generateStackCompose(p paths, apps, widgets []*Manifest) string {
 	mods := optionalModules(p)
 	for _, m := range widgets {
@@ -814,14 +701,11 @@ func generateStackCompose(p paths, apps, widgets []*Manifest) string {
 		}
 	}
 
-	// web nginx static mounts: hub + per-route app dist, from this color's snapshot.
-	// Snapshots live under infra/.stacks (see snapshot_dist), and compose resolves
-	// relative bind mounts against the compose file's dir (infra/), so these are
-	// "./.stacks/…" — NOT "../" (that would point one level above infra/).
+	// Bind mounts resolve against infra/ (the compose file's dir): ./.stacks, not ../.
 	webVols := []string{
 		"      - ./.stacks/${NUCLEUS_COLOR}/srv/hub:/srv/hub:ro",
 		"      - ./.stacks/${NUCLEUS_COLOR}/srv/static:/srv/static:ro",
-		"      - ../state:/srv/state:ro", // maintenance.json flag (infra/maintenance)
+		"      - ../state:/srv/state:ro",
 	}
 	for _, m := range all {
 		if m.Route == "" {
@@ -837,7 +721,6 @@ func generateStackCompose(p paths, apps, widgets []*Manifest) string {
 		webDepends = append(webDepends, fmt.Sprintf("      %s:\n        condition: service_healthy", m.Server.Service))
 	}
 
-	// Shared upload named volumes, pinned to the original nucleus_* names.
 	var uploadVols []string
 	seenVol := map[string]bool{}
 	for _, m := range withServers {
@@ -924,8 +807,6 @@ services:
 	out.WriteString(strings.Join(serverBlocks, "\n"))
 	out.WriteString("\n")
 
-	// Networks: internal (intra-color DNS: web ↔ servers), plus the two shared
-	// external networks (data → mongo/redis/minio, edge → the edge proxy).
 	out.WriteString("networks:\n")
 	out.WriteString("  internal:\n    driver: bridge\n")
 	out.WriteString("  data:\n    name: " + dataNet + "\n    external: true\n")
@@ -941,15 +822,6 @@ services:
 	return out.String()
 }
 
-// ── Edge compose (always-on front proxy) ─────────────────────────────────────
-
-// generateEdgeCompose emits the always-on edge proxy: one nginx binding 80/443,
-// terminating TLS, and forwarding to the active color over edgeNet. Bring up with:
-//
-//	docker compose -p nucleus-edge -f docker-compose.edge.yml up -d
-//
-// The nginx/edge dir is mounted whole (not a single file) so a rewritten
-// active.inc is a new inode a running nginx sees on `nginx -s reload`.
 func generateEdgeCompose(p paths) string {
 	var out strings.Builder
 	out.WriteString(`# GENERATED by 'nucleus generate' (infra/tool) — do not edit manually
@@ -980,18 +852,11 @@ networks:
 	return out.String()
 }
 
-// ── Compose override ─────────────────────────────────────────────────────────
-
 type hubLib struct {
 	id  string
 	rel string
 }
 
-// findHubLibraries finds apps with a client/ dir but no client/vite.config.js —
-// hub libraries, bundled into the hub rather than built standalone. Each one is
-// exposed to the hub at hub/libs/<id> (a symlink locally, a bind mount in the
-// dev container), where the hub discovers what it offers by fixed filename
-// (e.g. libs/<id>/hub.js — see hub/src/composables/useDashboardProvider.js).
 func findHubLibraries(p paths) ([]hubLib, error) {
 	if !exists(p.apps) {
 		return nil, nil
@@ -1014,8 +879,7 @@ func findHubLibraries(p paths) ([]hubLib, error) {
 			continue
 		}
 		clientDir := filepath.Join(appDir, "client")
-		// No manifest, no app: an empty apps/<id>/client skeleton (Docker recreates
-		// a missing bind-mount source) must not resurrect a removed hub library.
+		// An empty client skeleton recreated by Docker must not resurrect a removed hub library.
 		if isIgnored(appDir) || !isApp(appDir) || !exists(clientDir) || exists(filepath.Join(clientDir, "vite.config.js")) {
 			continue
 		}
@@ -1024,8 +888,6 @@ func findHubLibraries(p paths) ([]hubLib, error) {
 	return libs, nil
 }
 
-// pluginRuntimeService emits the plugin-runtime service block (shared by the dev
-// override and the blue/green stack; extra carries per-target keys).
 func pluginRuntimeService(extra string, mods modules) string {
 	var b strings.Builder
 	b.WriteString("  plugin-runtime:\n    build:\n      context: ../plugin-runtime\n    restart: unless-stopped\n")
@@ -1040,16 +902,8 @@ func pluginRuntimeService(extra string, mods modules) string {
 	return b.String()
 }
 
-// generateOverride emits the dev compose override: includes for every module
-// that ships a docker-compose.app.yml, plus everything optional — hub library,
-// widget and plugin mounts, and the plugin runtime — only when installed.
-// isApp reports whether dir is an installed app — it has a manifest.
 func isApp(dir string) bool { return exists(filepath.Join(dir, "nucleus.app.json")) }
 
-// syncHubLibLinks points hub/libs/<id> at each installed hub library's client/
-// and prunes links to libraries that are gone, so adding or removing an app is
-// all it takes. hub/libs is gitignored in the hub repo; only symlinks are ever
-// removed, never real files.
 func syncHubLibLinks(p paths, libs []hubLib) {
 	dir := filepath.Join(p.root, "hub", "libs")
 	if !exists(filepath.Join(p.root, "hub")) {
@@ -1088,7 +942,6 @@ func generateOverride(p paths, apps, widgets []*Manifest, hubLibs []hubLib) stri
 		hubVolumes = append(hubVolumes, "      - ../widgets:/app/widgets:ro")
 	}
 	if mods.plugins {
-		// Core components bundled into the hub glob plugin client files.
 		hubVolumes = append(hubVolumes, "      - ../plugins:/app/plugins:ro")
 	}
 
@@ -1100,10 +953,7 @@ func generateOverride(p paths, apps, widgets []*Manifest, hubLibs []hubLib) stri
 		services = append(services, "  registry:\n    volumes:\n      - ../widgets:/widgets:ro\n")
 	}
 	if mods.plugins {
-		// Core plugin servers, discovered at boot (core/auth-server/serverPlugins.js).
-		// NUCLEUS_PLUGINS records the installed set so adding or removing a plugin
-		// changes this service's config and `up` recreates it — its `node --watch`
-		// only restarts for files it already imported, never for a new plugin.
+		// NUCLEUS_PLUGINS changes the config so `up` recreates it; node --watch misses new plugins.
 		services = append(services, fmt.Sprintf("  auth-server:\n    environment:\n      NUCLEUS_PLUGINS: %q\n    volumes:\n      - ../plugins:/app/plugins:ro\n",
 			strings.Join(mods.pluginIDs, ",")))
 	}

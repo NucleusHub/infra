@@ -1,17 +1,4 @@
 #!/usr/bin/env bash
-# infra/bluegreen-init — ONE-TIME migration from the old single-project stack
-# (docker compose project "nucleus") to the blue/green layout.
-#
-# This is the only step that incurs downtime, and only once: the stateful data
-# services (mongo/redis/minio) must move from the old project to the shared
-# nucleus-data project, and the old nginx must release :80/:443 for the edge.
-# Everything that can be done while the old stack still serves (pull, build,
-# snapshot, pre-build the blue images) is done first to keep that window short.
-#
-# Data is preserved: the data + upload volumes are pinned to their original
-# nucleus_* names, so nucleus-data reuses the exact same volumes.
-#
-# Usage: infra/bluegreen-init
 set -euo pipefail
 
 INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +12,6 @@ fi
 log_stage "Blue/green one-time migration"
 log_warn "This performs a single brief downtime while data + proxy move to the new layout."
 
-# ── Prep everything possible while the old stack keeps serving ─────────────────
 ensure_networks
 set_mongo_image
 
@@ -39,9 +25,6 @@ snapshot_dist blue
 log_info "Pre-building the blue color images…"
 dc_stack blue build
 
-# ── Cutover (downtime starts) ─────────────────────────────────────────────────
-# Remove the legacy monolithic containers (compose project == exactly "nucleus").
-# This frees the data volumes and :80/:443. Volumes are NOT touched by `rm -f`.
 legacy="$(docker ps -aq --filter 'label=com.docker.compose.project=nucleus' 2>/dev/null || true)"
 if [ -n "$legacy" ]; then
   log_stage "Stopping legacy monolithic stack (brief downtime begins)…"

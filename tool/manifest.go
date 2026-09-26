@@ -9,9 +9,6 @@ import (
 	"sort"
 )
 
-// OrderedMap is a string→string map that remembers insertion (JSON) order.
-// The env blocks generate.js emitted iterated keys in manifest order, so we must
-// preserve it to stay byte-identical.
 type OrderedMap struct {
 	Keys []string
 	Vals map[string]string
@@ -20,7 +17,6 @@ type OrderedMap struct {
 func (o *OrderedMap) UnmarshalJSON(b []byte) error {
 	o.Vals = map[string]string{}
 	dec := json.NewDecoder(bytes.NewReader(b))
-	// opening '{'
 	if _, err := dec.Token(); err != nil {
 		return err
 	}
@@ -40,8 +36,6 @@ func (o *OrderedMap) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Route mirrors one entry of manifest.nginx.routes plus the two fields
-// generate.js attached dynamically during generation.
 type Route struct {
 	Path        string  `json:"path"`
 	Upstream    string  `json:"upstream"`
@@ -49,11 +43,7 @@ type Route struct {
 	Cors        bool    `json:"cors"`
 	MaxBodySize *string `json:"maxBodySize"`
 
-	// fallback is computed (not from JSON): the SPA/client route falls back to
-	// the Anchor degraded page when its upstream is down.
-	fallback bool
-	// manifestRoute is the owning manifest's `route`, used to tell SPA routes
-	// (path === route) from API/proxy routes in prod generation.
+	fallback      bool
 	manifestRoute string
 }
 
@@ -70,17 +60,9 @@ type Server struct {
 	NamedVolumes   []string    `json:"namedVolumes"`
 	HealthEndpoint string      `json:"healthEndpoint"`
 	StartPeriod    string      `json:"startPeriod"`
-	// Raw bind-mount lines (e.g. "../apps:/apps:ro") emitted verbatim into the
-	// prod service's volumes. Unlike NamedVolumes these are NOT declared as
-	// top-level named volumes. Set by coreServices or declared in an app's
-	// nucleus.app.json server.bindMounts (e.g. Echo mounts ../apps for its
-	// manifest-driven registry).
-	BindMounts []string `json:"bindMounts"`
+	BindMounts     []string    `json:"bindMounts"`
 }
 
-// Compatibility mirrors manifest.compatibility — a module's declared support
-// range against the platform. Only nucleus is used today; the struct leaves
-// room for future keys (e.g. per-module deps) without a schema break.
 type Compatibility struct {
 	Nucleus string `json:"nucleus"`
 }
@@ -91,19 +73,14 @@ type Manifest struct {
 	Nginx  *Nginx  `json:"nginx"`
 	Server *Server `json:"server"`
 
-	// Versioning metadata (SemVer). Parsed but not required for generation —
-	// docker/nginx output doesn't depend on it. validate() warns (never fails)
-	// on missing/invalid values so builds stay unblocked while the ecosystem
-	// adopts versioning. See infra/nucleus-docs/VERSIONING.md.
 	Version         string         `json:"version"`
 	ManifestVersion int            `json:"manifestVersion"`
 	Compatibility   *Compatibility `json:"compatibility"`
 
-	dir  string // _dir — absolute path to the app/widget directory
-	role string // _role — overrides the compose label role (auth, widget-server)
+	dir  string
+	role string
 }
 
-// label is the human-readable identifier used in validation messages.
 func (m *Manifest) label() string {
 	if m.ID != "" {
 		return m.ID
@@ -114,7 +91,6 @@ func (m *Manifest) label() string {
 	return m.dir
 }
 
-// routes returns the manifest's nginx routes (nil-safe).
 func (m *Manifest) routes() []Route {
 	if m.Nginx == nil {
 		return nil
@@ -122,9 +98,6 @@ func (m *Manifest) routes() []Route {
 	return m.Nginx.Routes
 }
 
-// isIgnored reports whether dir carries a nucleus.ignore marker, which excludes
-// it from ALL discovery (registry, nginx/compose, hub symlinking). Keeps
-// apps/anchor out of the ecosystem. Mirrors the guard in build + registry.
 func isIgnored(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "nucleus.ignore"))
 	return err == nil
@@ -135,9 +108,6 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// readManifests discovers app/widget manifests under baseDir. Directories are
-// scanned in sorted order so output is deterministic (matches the alphabetical
-// readdir the JS tool relied on).
 func readManifests(baseDir, filename string) ([]*Manifest, error) {
 	if !exists(baseDir) {
 		return nil, nil
@@ -160,7 +130,7 @@ func readManifests(baseDir, filename string) ([]*Manifest, error) {
 		path := filepath.Join(dir, filename)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			continue // no manifest in this dir
+			continue
 		}
 		var m Manifest
 		if err := json.Unmarshal(data, &m); err != nil {
@@ -173,9 +143,6 @@ func readManifests(baseDir, filename string) ([]*Manifest, error) {
 	return out, nil
 }
 
-// coreServices are always-present infrastructure services (not discoverable
-// apps). They live in core/ and are hardcoded here — nginx route + prod
-// container — exactly as in generate.js. The registry never sees them.
 func coreServices(p paths) []*Manifest {
 	authMounts := []string{
 		"../apps:/apps:ro",
@@ -184,8 +151,6 @@ func coreServices(p paths) []*Manifest {
 		"../state:/srv/state",
 	}
 	if optionalModules(p).plugins {
-		// Core plugins ship server code under /plugins (e.g. the What's New
-		// route mounted at /api/auth/whats-new), imported guarded. Read-only.
 		authMounts = append(authMounts, "../plugins:/app/plugins:ro")
 	}
 	return []*Manifest{
@@ -211,10 +176,7 @@ func coreServices(p paths) []*Manifest {
 						"STATE_DIR":        "/srv/state",
 					},
 				},
-				Depends: []string{"mongo"},
-				// The localization service reads shipped locale files off disk; the
-				// maintenance route writes the banner flag into ../state (nginx
-				// serves it read-only — see generateProdCompose's nginx mounts).
+				Depends:    []string{"mongo"},
 				BindMounts: authMounts,
 			},
 		},

@@ -1,32 +1,11 @@
 #!/usr/bin/env node
-// ─────────────────────────────────────────────────────────────────────────────
-// package-standalone.mjs — turn a Nucleus app into a self-contained, offline,
-// installable app (PWA + Capacitor). Reusable for any app; watchlist is the pilot.
-//
-//   node infra/native/package-standalone.mjs <appId> [pwa|android|ios]
-//
-// It does NOT touch the Go build tool. Steps:
-//   1. Branch the app's own git repo (feat/standalone), keeping working changes.
-//   2. Inline @core — trace the real import graph from the client and copy only
-//      the core files actually used into client/src/core, so no symlink remains
-//      and the app is one self-contained repo. A trimmed useI18n override drops
-//      the auth/network path (static single-language mode).
-//   3. Rewrite vite.config.js (alias @core → ./src/core, base '/', add PWA) and
-//      main.css (core paths), remove the core/widgets/plugins symlinks.
-//   4. Add Capacitor config; for android/ios add the native platform.
-//   5. Install deps and build; PWA stops at dist/, android assembles an APK,
-//      ios prints a macOS/Xcode notice on non-mac hosts.
-//
-// The app-specific parts (local Dexie store, dropped AuthGuard, account stub) are
-// authored on the branch beforehand; this script is the generic packaging half.
-// ─────────────────────────────────────────────────────────────────────────────
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const REPO = path.resolve(HERE, '..', '..')            // infra/native → repo root
+const REPO = path.resolve(HERE, '..', '..')
 const CORE = path.join(REPO, 'core')
 const CORE_REAL = fs.realpathSync(CORE)
 const BRANCH = 'feat/standalone'
@@ -39,7 +18,7 @@ if (!['pwa', 'android', 'ios'].includes(target)) fail(`unknown target "${target}
 const APP = path.join(REPO, 'apps', appId)
 const CLIENT = path.join(APP, 'client')
 const SRC = path.join(CLIENT, 'src')
-const OUT_CORE = path.join(SRC, 'core')                 // inlined core lands here
+const OUT_CORE = path.join(SRC, 'core')
 if (!fs.existsSync(CLIENT)) fail(`no client at ${CLIENT}`)
 
 const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'nucleus.app.json'), 'utf8'))
@@ -53,44 +32,36 @@ function run(cmd, args, cwd, env) {
   execFileSync(cmd, args, { cwd, stdio: 'inherit', env: env || process.env })
 }
 
-// TMDb key is a client-public var (already baked into every shipped Nucleus
-// bundle). Read it from the environment or infra/.env and pass it to the build so
-// search/autofill work; never written into the app repo.
 function tmdbKey() {
   if (process.env.VITE_TMDB_API_KEY) return process.env.VITE_TMDB_API_KEY
   try {
     const env = fs.readFileSync(path.join(REPO, 'infra', '.env'), 'utf8')
     const m = env.match(/^VITE_TMDB_API_KEY=(.*)$/m)
     if (m) return m[1].trim()
-  } catch { /* no infra/.env */ }
+  } catch {}
   return ''
 }
 function git(args) {
   return execFileSync('git', args, { cwd: APP, encoding: 'utf8' }).trim()
 }
 
-// ── 1. Branch ────────────────────────────────────────────────────────────────
 log(`\n▸ ${appId} → standalone (${target})`)
 log('▸ branch')
 const cur = git(['rev-parse', '--abbrev-ref', 'HEAD'])
 if (cur !== BRANCH) {
-  git(['checkout', '-B', BRANCH])          // keeps uncommitted working-tree changes
+  git(['checkout', '-B', BRANCH])
   log(`  on ${BRANCH}`)
 } else {
   log(`  already on ${BRANCH}`)
 }
 
-// ── 2. Inline @core (trace the real import graph) ────────────────────────────
 log('▸ inline core')
 
-// Core files that must never be inlined: the standalone app drops them (auth,
-// hub nav, registry, plugins). Reaching one means a src edit was missed.
 const DENY = [/^auth\//, /^AppSidebar\.vue$/, /^useRegistry\.js$/, /^usePlugins\.js$/]
-// Trimmed replacements for core files whose original pulls in backend/auth code.
 const OVERRIDES = { 'useI18n.js': i18nOverride() }
 
-const visited = new Set()   // files already scanned for imports
-const copied = new Set()    // core rel-paths already written
+const visited = new Set()
+const copied = new Set()
 
 function resolveFile(base) {
   const tries = ['', '.js', '.ts', '.vue', '.json', '.mjs', '/index.js']
@@ -101,16 +72,15 @@ function resolveFile(base) {
   return null
 }
 
-// Pull every module specifier out of a JS/Vue/CSS source.
 function specifiers(code, isCss) {
   const specs = new Set()
   const add = (re) => { let m; while ((m = re.exec(code))) specs.add(m[1]) }
   if (isCss) {
     add(/@import\s+["']([^"']+)["']/g)
   } else {
-    add(/\bfrom\s+["']([^"']+)["']/g)          // import/export … from '…'
-    add(/\bimport\s+["']([^"']+)["']/g)         // side-effect import '…'
-    add(/\bimport\(\s*["']([^"']+)["']\)/g)      // dynamic import('…')
+    add(/\bfrom\s+["']([^"']+)["']/g)
+    add(/\bimport\s+["']([^"']+)["']/g)
+    add(/\bimport\(\s*["']([^"']+)["']\)/g)
   }
   return [...specs]
 }
@@ -127,20 +97,19 @@ function copyCore(realPath) {
   const override = OVERRIDES[rel]
   if (override != null) {
     fs.writeFileSync(dest, override)
-    scan(realPath, override)                      // trace the override's own imports
+    scan(realPath, override)
   } else {
     fs.copyFileSync(realPath, dest)
     if (/\.(js|ts|mjs|vue|css)$/.test(rel)) scan(realPath, fs.readFileSync(realPath, 'utf8'))
   }
 }
 
-// Scan a file's imports; copy any that resolve into core, recurse through src.
 function scan(absFile, code) {
   if (visited.has(absFile)) return
   visited.add(absFile)
   const isCss = absFile.endsWith('.css')
   for (const spec of specifiers(code ?? fs.readFileSync(absFile, 'utf8'), isCss)) {
-    const clean = spec.split('?')[0]              // drop ?component / ?url / ?raw
+    const clean = spec.split('?')[0]
     let resolved
     if (clean.startsWith('@core/')) {
       resolved = resolveFile(path.join(CORE, clean.slice('@core/'.length)))
@@ -148,34 +117,31 @@ function scan(absFile, code) {
       resolved = resolveFile(path.join(SRC, clean.slice(2)))
     } else if (clean.startsWith('.') || clean.startsWith('/')) {
       let abs = path.resolve(path.dirname(absFile), clean)
-      // Idempotency: a prior run may have rewritten a source to point into the
-      // (now-cleaned) inlined output dir; resolve such specs from the real core.
+      // Prior runs may have rewritten specs into OUT_CORE; resolve them from the real core.
       if (abs === OUT_CORE || abs.startsWith(OUT_CORE + path.sep)) {
         abs = path.join(CORE, path.relative(OUT_CORE, abs))
       }
       resolved = resolveFile(abs)
     } else {
-      continue                                     // bare package (vue, dexie, tailwindcss…)
+      continue
     }
     if (!resolved) continue
     const real = fs.realpathSync(resolved)
     if (real.startsWith(CORE_REAL + path.sep)) {
-      copyCore(real)                               // a core file → inline it
+      copyCore(real)
     } else if (real.startsWith(fs.realpathSync(SRC) + path.sep)) {
       if (/\.(js|ts|mjs|vue|css)$/.test(real)) scan(real, fs.readFileSync(real, 'utf8'))
     }
   }
 }
 
-fs.rmSync(OUT_CORE, { recursive: true, force: true })   // clean previous inline
+fs.rmSync(OUT_CORE, { recursive: true, force: true })
 for (const entry of ['main.js', 'assets/main.css']) {
   scan(path.join(SRC, entry), fs.readFileSync(path.join(SRC, entry), 'utf8'))
 }
 log(`  inlined ${copied.size} core files → src/core`)
 
-// ── 3. Rewrite config + drop symlinks ────────────────────────────────────────
 log('▸ rewire build')
-// main.css: repoint the core motion.css import + Tailwind @source at ./src/core.
 const cssPath = path.join(SRC, 'assets', 'main.css')
 let css = fs.readFileSync(cssPath, 'utf8')
 css = css.replaceAll('../../core/', '../core/')
@@ -187,10 +153,9 @@ for (const link of ['core', 'widgets', 'plugins']) {
   const p = path.join(CLIENT, link)
   try {
     if (fs.lstatSync(p).isSymbolicLink()) { fs.unlinkSync(p); log(`  removed symlink ${link}`) }
-  } catch { /* absent */ }
+  } catch {}
 }
 
-// ── 4. PWA icon + Capacitor config ───────────────────────────────────────────
 log('▸ assets + capacitor')
 const pub = path.join(CLIENT, 'public')
 fs.mkdirSync(pub, { recursive: true })
@@ -203,7 +168,6 @@ fs.writeFileSync(path.join(CLIENT, 'capacitor.config.json'), JSON.stringify({
   webDir: 'dist',
 }, null, 2) + '\n')
 
-// ── 5. Deps + build ──────────────────────────────────────────────────────────
 log('▸ install deps')
 run('npm', ['install', '--no-audit', '--no-fund', '--save', 'dexie@^4'], CLIENT)
 run('npm', ['install', '--no-audit', '--no-fund', '--save-dev', 'vite-plugin-pwa@^1'], CLIENT)
@@ -213,9 +177,6 @@ if (target !== 'pwa') {
 }
 
 log('▸ build web')
-// Write the TMDb key to .env.local (gitignored) so BOTH `vite dev` and `vite
-// build` load it automatically — no manual env needed. The key is a client-public
-// var (it ships inside every built bundle anyway).
 const KEY = tmdbKey()
 if (KEY) {
   fs.writeFileSync(path.join(CLIENT, '.env.local'), `VITE_TMDB_API_KEY=${KEY}\n`)
@@ -231,7 +192,6 @@ if (target === 'pwa') {
   process.exit(0)
 }
 
-// Native platform scaffold + sync.
 const platDir = path.join(CLIENT, target)
 if (!fs.existsSync(platDir)) run('npx', ['cap', 'add', target], CLIENT)
 run('npx', ['cap', 'sync', target], CLIENT)
@@ -253,7 +213,6 @@ if (target === 'android') {
   }
 }
 
-// ── templates ────────────────────────────────────────────────────────────────
 function viteConfig() {
   return `import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'

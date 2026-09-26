@@ -6,15 +6,6 @@
 <meta name="color-scheme" content="dark">
 <title>Marketplace · Nucleus</title>
 <style>
-/* ═══════════════════════════════════════════════════════════════════════════
-   Nucleus Modules — the installer UI served by `nucleus modules ui`.
-
-   Visually a port of the nucleus-web marketplace (tokens, backdrop, glass,
-   toolbar and card anatomy), without the site's header and footer. Fonts are
-   the site's own self-hosted files, embedded in the binary: no third-party
-   requests, which fits a tool that runs next to your infrastructure.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
 @font-face { font-family: 'Instrument Sans'; src: url('/fonts/instrument-sans-latin.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
 @font-face { font-family: 'Inter'; src: url('/fonts/inter-latin.woff2') format('woff2'); font-weight: 300 600; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2'); font-weight: 400 500; font-display: swap; }
@@ -97,7 +88,6 @@
 	--dur-slow: 0.55s;
 }
 
-/* ── Base ─────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 * { margin: 0; padding: 0; }
 [hidden] { display: none !important; }
@@ -132,7 +122,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .mono { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: 500; letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-3); }
 .container { width: 100%; max-width: var(--container-wide); margin-inline: auto; padding-inline: var(--gutter); position: relative; z-index: 1; }
 
-/* ── Backdrop — the site's room: base, lights, orbits, dust, grid, grain ─── */
 .backdrop { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: var(--bg-page); }
 .backdrop__base {
 	position: absolute; inset: 0;
@@ -241,7 +230,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 	.backdrop__dust--near { background-size: 300px 300px; }
 }
 
-/* ── Glass — body, refracting rim, inner bounce, pointer sheen ───────────── */
 .glass {
 	--glass-radius: var(--r-lg);
 	--sheen: 0;
@@ -280,7 +268,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 	box-shadow: inset 0 -22px 38px -34px rgba(255, 255, 255, 0.34), var(--shadow-lg), 0 0 60px -34px var(--halo-strong);
 }
 
-/* ── Buttons & chips ──────────────────────────────────────────────────────── */
 .btn {
 	position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 0.55em;
 	border-radius: var(--r-pill); font-family: var(--font-display); font-weight: 500; letter-spacing: -0.012em; white-space: nowrap;
@@ -315,7 +302,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .chip--danger:hover:not(:disabled) { color: #fff; background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.3); }
 .glyph { flex: none; overflow: visible; }
 
-/* ── Intro (the page's own header) ───────────────────────────────────────── */
 .intro { padding-top: clamp(72px, 12vh, 140px); padding-bottom: clamp(40px, 5vw, 64px); }
 .intro__top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-8); }
 .intro__eyebrow { display: inline-flex; align-items: center; gap: 0.65rem; margin: 0 0 var(--s-5); }
@@ -325,7 +311,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .intro__lead code { font-family: var(--font-mono); font-size: 0.86em; color: var(--accent-ink); }
 .account-bar { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--s-2); padding-bottom: 0.2rem; }
 
-/* ── Toolbar ──────────────────────────────────────────────────────────────── */
 .toolbar { display: grid; gap: var(--s-4); grid-template-columns: minmax(220px, 1fr) auto; grid-template-areas: 'search extra' 'kinds kinds'; align-items: center; }
 .toolbar__search { position: relative; grid-area: search; }
 .toolbar__search .glyph { position: absolute; top: 50%; left: 0.9rem; color: var(--ink-4); transform: translateY(-50%); pointer-events: none; }
@@ -356,7 +341,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .count__clear { font-family: var(--font-display); font-size: var(--fs-xs); letter-spacing: normal; text-transform: none; color: var(--accent-ink); }
 .count__clear:hover { color: var(--ink-hi); }
 
-/* ── Sections & grid ──────────────────────────────────────────────────────── */
 .group + .group { margin-top: clamp(36px, 4vw, 56px); }
 .group__head { display: flex; align-items: center; gap: var(--s-4); margin-bottom: var(--s-4); }
 .group__title { display: inline-flex; align-items: center; gap: 0.65rem; }
@@ -368,7 +352,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .skeleton { height: 206px; border-radius: var(--r-md); background: linear-gradient(177deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015)); box-shadow: inset 0 0 0 1px var(--line-soft); animation: skeleton-pulse 1.6s var(--ease-soft) infinite; }
 @keyframes skeleton-pulse { 50% { opacity: 0.55; } }
 
-/* ── Card — the marketplace's ItemCard anatomy ───────────────────────────── */
 .card { --glass-radius: var(--r-md); display: flex; flex-direction: column; gap: 0.55rem; padding: var(--s-5); height: 100%; }
 .card.is-pending { box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.55), 0 0 0 3px var(--halo-faint), var(--shadow-md); }
 .card__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: 0.2rem; }
@@ -384,7 +367,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-top: auto; padding-top: var(--s-4); }
 .card__source { display: inline-flex; align-items: center; gap: 0.4em; min-width: 0; font-family: var(--font-mono); font-size: 0.7rem; color: var(--ink-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Status badge — the marketplace's mono pill with a glowing dot. */
 .badge { display: inline-flex; align-items: center; gap: 0.45em; padding: 0.24em 0.6em 0.24em 0.46em; border-radius: var(--r-pill); font-family: var(--font-mono); font-size: 0.62rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; color: var(--ink-3); background: rgba(255, 255, 255, 0.04); box-shadow: inset 0 0 0 1px var(--line-soft); }
 .badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .badge--installed { color: var(--live); background: var(--live-soft); box-shadow: inset 0 0 0 1px rgba(110, 231, 183, 0.22); }
@@ -399,7 +381,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .alert--wait { color: var(--wait); background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.18); }
 .alert .glyph { margin-top: 2px; }
 
-/* ── Pending bar ──────────────────────────────────────────────────────────── */
 .bar { position: fixed; left: 50%; bottom: 18px; z-index: 20; width: min(1180px, calc(100% - 32px)); padding: var(--s-4) var(--s-5); transform: translate(-50%, 160%); transition: transform var(--dur-slow) var(--ease); }
 .bar.show { transform: translate(-50%, 0); }
 .bar__row { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
@@ -417,7 +398,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .extras input { accent-color: var(--wait); }
 .hint { margin-top: var(--s-2); font-size: var(--fs-xs); color: var(--wait); }
 
-/* ── Run window ───────────────────────────────────────────────────────────── */
 .overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; padding: var(--s-4); background: rgba(3, 2, 8, 0.66); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .overlay.show { display: grid; animation: fade-in 0.2s ease; }
 .overlay.closing { animation: fade-out 0.35s ease forwards; }
@@ -435,10 +415,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .progress::after { content: ''; display: block; width: 35%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, transparent, var(--accent-soft), transparent); animation: slide 1.3s ease-in-out infinite; }
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 .run.done .progress { display: none; }
-/* Collapsed log: a small liquid-glass pane. The newest two lines are crisp;
-   the two before them recede — fading and blurring the further back they are
-   — so it reads as a live stream rather than a fixed readout. New lines slide
-   the stack up instead of snapping. */
 .tail {
 	--line-h: 1.2rem;
 	position: relative; isolation: isolate; overflow: hidden;
@@ -450,7 +426,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 	-webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
 	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), inset 0 -14px 26px -24px rgba(255, 255, 255, 0.22), inset 0 0 0 1px var(--line-soft);
 }
-/* Specular rim, like the cards' glass. */
 .tail::before {
 	content: ''; position: absolute; inset: 0; z-index: 2; border-radius: inherit; padding: 1px; pointer-events: none;
 	background: linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.04) 30%, transparent 60%, rgba(192, 132, 252, 0.18));
@@ -603,8 +578,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 
 <script>
 (() => {
-	// The one-time token arrives in the URL fragment (never sent to the server
-	// in a request line); keep it for reloads of this tab, then tidy the URL.
+	// Token comes via the URL fragment so it never appears in a request line.
 	const fromHash = new URLSearchParams(location.hash.slice(1)).get('token')
 	if (fromHash) {
 		try { sessionStorage.setItem('modules-token', fromHash) } catch {}
@@ -649,8 +623,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 	const removable = (m) => m.installed && !m.local && !m.hidden
 	const label = (k) => (state.byKey[k] || {}).name || k.split(':')[1]
 
-	// Module icons are SVG from the repos. They're shown as <img> data URIs —
-	// an image can't run script — with currentColor mapped to the accent ink.
+	// SVG icons render as <img> data URIs so they can't run script.
 	function iconHTML(m) {
 		if (!m.icon) return esc((m.name || m.id).slice(0, 1).toUpperCase())
 		const svg = m.icon.replace(/currentColor/g, '#DCC9FE')
@@ -761,7 +734,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		renderBar()
 	}
 
-	// Say so when the chosen mode won't touch the stack that's running.
 	function renderStackHint() {
 		const s = state.stacks || {}
 		let hint = ''
@@ -790,7 +762,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 				...plan.warnings.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`),
 				...plan.notes.map((t) => `<li>· ${esc(t)}</li>`),
 			].join('')
-			// The plan's optional follow-up, e.g. removing every widget with Pulse.
 			$('extras').hidden = !plan.extras
 			if (plan.extras) {
 				$('extrasLabel').textContent = `${plan.extras.label}: ${plan.extras.modules.map(label).join(', ')}`
@@ -806,7 +777,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		}
 	}
 
-	// ── Run window ────────────────────────────────────────────────────────
 	function setCompact(compact) {
 		$('run').classList.toggle('compact', compact)
 		$('runToggle').textContent = compact ? 'Show log' : 'Hide log'
@@ -821,9 +791,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		renderTail(text.split('\n').map((l) => l.trimEnd()).filter(Boolean))
 	}
 
-	// The collapsed log keeps one extra line above the visible four, so a new
-	// line can push the stack up: render shifted down by the lines that just
-	// arrived, then glide back to rest.
 	let tailShown = []
 	let tailCount = 0
 	function renderTail(all) {
@@ -838,7 +805,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		if (!grew || matchMedia('(prefers-reduced-motion: reduce)').matches) return
 		el.classList.remove('slide')
 		el.style.transform = `translateY(calc(${grew} * var(--line-h)))`
-		void el.offsetHeight // commit the offset before animating it away
+		void el.offsetHeight
 		el.classList.add('slide')
 		el.style.transform = ''
 	}
@@ -871,7 +838,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 			if (job.running) return setTimeout(poll, 700)
 			finish(job.ok)
 		} catch (e) {
-			setTimeout(poll, 1500) // the stack is restarting — keep trying
+			setTimeout(poll, 1500)
 		}
 	}
 
@@ -882,7 +849,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		$('runClose').disabled = false
 		if (!ok) {
 			$('runTitle').textContent = 'Failed — see the log'
-			setCompact(false) // failures open the full log
+			setCompact(false)
 			return
 		}
 		state.install.clear(); state.remove.clear(); state.extras = false
@@ -903,7 +870,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		}, 350)
 	}
 
-	// A short burst of confetti from behind the check mark.
 	function confetti() {
 		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
 		const canvas = $('confetti')
@@ -940,7 +906,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		requestAnimationFrame(frame)
 	}
 
-	// ── Pointer sheen on glass cards (the site's v-pointer) ──────────────
 	const fine = matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches
 	let sheenFrame = 0
 	if (fine) {
@@ -956,7 +921,6 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		}, { passive: true })
 	}
 
-	// ── Events ────────────────────────────────────────────────────────────
 	document.addEventListener('click', (e) => {
 		if (e.target.closest('#clearFilters')) {
 			state.filter = ''; state.installedOnly = false; state.query = ''; $('search').value = ''

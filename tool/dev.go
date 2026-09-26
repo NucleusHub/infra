@@ -8,14 +8,8 @@ import (
 	"strings"
 )
 
-// devComposeArgs is the dev stack's compose file pair: the base dev services
-// plus the generated override (app/widget includes + hub library mounts).
 var devComposeArgs = []string{"-f", "docker-compose.yml", "-f", "docker-compose.override.yml"}
 
-// runDev brings the dev stack up, but only if it isn't already running — the
-// "if not already present" guard. It mirrors the infra/nucleus wrapper's
-// pre-flight: pick the right MongoDB image for the CPU, persist it so a plain
-// `docker compose up` agrees, and regenerate nginx/compose from manifests.
 func runDev(p paths) error {
 	if err := loadEnv(filepath.Join(p.infra, ".env")); err != nil {
 		return err
@@ -33,7 +27,6 @@ func runDev(p paths) error {
 		return err
 	}
 
-	// Regenerate configs so the override (and nginx) reflect current manifests.
 	if err := runGenerate(p); err != nil {
 		return err
 	}
@@ -55,15 +48,11 @@ func runDev(p paths) error {
 		return fmt.Errorf("docker compose up failed: %w", err)
 	}
 
-	// Dev is accessed locally; external/tailnet access still works via the
-	// NUCLEUS_HOST server_name, but the canonical dev link is localhost.
 	fmt.Printf("\n%s%s✓ Dev stack is up.%s\n", cBold, cGreen, cReset)
 	fmt.Println("  Hub → http://localhost/")
 	return nil
 }
 
-// devRunning reports whether any of the dev stack's containers are currently
-// running (compose scopes `ps` to this project's two compose files).
 func devRunning(p paths) (bool, error) {
 	args := append(append([]string{"compose"}, devComposeArgs...), "ps", "--status", "running", "--quiet")
 	cmd := exec.Command("docker", args...)
@@ -75,8 +64,6 @@ func devRunning(p paths) (bool, error) {
 	return strings.TrimSpace(string(out)) != "", nil
 }
 
-// persistEnvVar sets key=val in a KEY=VALUE file, replacing an existing line or
-// appending one, leaving every other line untouched (like the wrapper's sed).
 func persistEnvVar(path, key, val string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

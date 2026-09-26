@@ -1,24 +1,9 @@
 #!/bin/sh
-# Nucleus — manifest-driven orchestration wrapper
-# Usage: ./nucleus [--all] [docker compose args]
-#   ./nucleus up -d          # bring up app services only
-#   ./nucleus down           # tear down app services only
-#   ./nucleus --all up -d    # include backing services (mongo, minio, redis)
-#   ./nucleus logs -f hub    # an explicitly named service is respected as-is
-#
-# By default commands are scoped to *app* services: the stateful backing
-# services (mongo, minio, redis) are never implicitly recreated or removed, so
-# you can bounce apps without dropping the database / cache / object store.
-# Pass --all to operate on the whole stack, or name a service explicitly to
-# target it (including a backing one, e.g. `./nucleus restart mongo`).
 set -e
 cd "$(dirname "$0")"
 
-# Backing services excluded from the default (app-only) scope.
 DATA_SERVICES="mongo minio redis"
 
-# Pull --all out of the argument list, wherever it appears, while preserving the
-# quoting of every other arg (rotate kept args to the end exactly $# times).
 ALL=0
 n=$#
 while [ "$n" -gt 0 ]; do
@@ -31,7 +16,6 @@ while [ "$n" -gt 0 ]; do
   n=$((n - 1))
 done
 
-# Detect AVX — MongoDB 5+ requires it; fall back to 4.4 on older CPUs
 if grep -q ' avx ' /proc/cpuinfo 2>/dev/null; then
   MONGO_IMAGE="mongo:7"
 else
@@ -40,14 +24,12 @@ else
 fi
 export MONGO_IMAGE
 
-# Persist to .env so plain 'docker compose up' also gets the right image
 if [ -f .env ] && grep -q '^MONGO_IMAGE=' .env; then
   awk -v img="$MONGO_IMAGE" '/^MONGO_IMAGE=/ { $0 = "MONGO_IMAGE=" img } 1' .env > .env.tmp && mv .env.tmp .env
 else
   echo "MONGO_IMAGE=$MONGO_IMAGE" >> .env
 fi
 
-# Regenerate nginx + compose configs via the Go infra tool (compiled on demand).
 BIN="$(./ensure-tool)"
 "$BIN" generate
 
@@ -61,7 +43,6 @@ if [ "$ALL" -eq 1 ]; then
   exec $COMPOSE "$@"
 fi
 
-# Scope to app services unless the user named a service explicitly.
 all_services=$($COMPOSE config --services 2>/dev/null)
 
 user_named_service=0
@@ -77,8 +58,6 @@ if [ "$user_named_service" -eq 1 ]; then
   exec $COMPOSE "$@"
 fi
 
-# Build the app-service list (everything except the backing services) and append
-# it so the command only ever touches apps.
 apps=""
 for s in $all_services; do
   skip=0

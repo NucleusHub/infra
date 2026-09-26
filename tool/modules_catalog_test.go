@@ -41,8 +41,6 @@ func TestRemoteOrg(t *testing.T) {
 	}
 }
 
-// catalogFixture: an app with a bundled widget, a plugin needing an app, a
-// widget depending on another, and a locked collection base.
 func catalogFixture() map[string]*module {
 	mk := func(kind moduleKind, id string, requires ...string) *module {
 		return &module{Kind: kind, ID: id, Name: id, Repo: map[moduleKind]string{kindApp: id, kindPlugin: "plugins", kindWidget: "widgets", kindService: id}[kind],
@@ -132,8 +130,6 @@ func TestPlanGuardsRemovals(t *testing.T) {
 	}
 }
 
-// ── End to end against local git repos ──────────────────────────────────────
-
 func gitT(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -144,7 +140,6 @@ func gitT(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// originRepo creates a local repo with the given files, committed on main.
 func originRepo(t *testing.T, base, name string, files map[string]string) {
 	t.Helper()
 	dir := filepath.Join(base, name)
@@ -204,7 +199,6 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 		t.Fatal("swap clock → moon failed")
 	}
 
-	// Docker recreating a removed app's bind-mount source doesn't block a reinstall.
 	step(nil, []string{"notes"})
 	os.MkdirAll(filepath.Join(p.apps, "notes", "client"), 0o755)
 	step([]string{"notes"}, nil)
@@ -212,7 +206,6 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 		t.Fatal("reinstall over an empty skeleton failed")
 	}
 
-	// Uncommitted work blocks a removal.
 	write(t, filepath.Join(p.apps, "notes", "draft.txt"), "wip")
 	mods := mergeModules(catalog, installedModules(p))
 	pl := planModules(mods, nil, []string{"notes"}, planOpts{})
@@ -221,7 +214,7 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 		t.Fatal("removing an app with uncommitted work must be refused")
 	}
 	os.Remove(filepath.Join(p.apps, "notes", "draft.txt"))
-	write(t, filepath.Join(p.apps, "notes", ".DS_Store"), "finder") // litter, not work
+	write(t, filepath.Join(p.apps, "notes", ".DS_Store"), "finder")
 
 	step(nil, []string{"notes", "moon"})
 	if has("apps/notes") || has("widgets") {
@@ -264,8 +257,6 @@ func TestModulesHandler(t *testing.T) {
 	if code, out := call("GET", "/api/modules", "", "s3cret"); code != 200 || len(out["modules"].([]any)) != 1 {
 		t.Errorf("modules: %d %v", code, out)
 	}
-	// A run with nothing to change and no apply finishes cleanly — and a second
-	// run can start after it (the job state resets without clobbering its lock).
 	for i := 0; i < 2; i++ {
 		if code, _ := call("POST", "/api/run", `{"install":[],"remove":[],"mode":"none"}`, "s3cret"); code != 200 {
 			t.Fatalf("run %d: %d", i, code)
@@ -325,7 +316,6 @@ func TestPlanRuntimeCascadeAndWidgetHostExtras(t *testing.T) {
 
 func TestSkeletonsAreNotModules(t *testing.T) {
 	p := testTree(t)
-	// What Docker leaves after a hub library is removed while a container still mounts it.
 	os.MkdirAll(filepath.Join(p.apps, "pulse", "client"), 0o755)
 	write(t, filepath.Join(p.apps, "pulse", ".DS_Store"), "x")
 	if libs, _ := findHubLibraries(p); len(libs) != 0 {

@@ -6,24 +6,14 @@ import (
 	"regexp"
 )
 
-// semverRe matches the Nucleus-supported SemVer form: MAJOR.MINOR.PATCH with an
-// optional -alpha.N / -beta.N / -rc.N prerelease. Mirrors core/version.js.
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$`)
 
-// provisionedServices are the backing services generate can auto-provision.
-// Anything an app/widget depends on must be one of these or another declared
-// server, else compose would reference a service that's never generated.
 var provisionedServices = []string{"mongo", "redis", "minio"}
 
-// validate fails the build loudly on manifest mistakes that would otherwise
-// emit a broken nginx config or invalid compose file: duplicate location blocks,
-// duplicate service keys, or a depends_on pointing at a never-generated service.
-// On any error it prints all of them and exits 1, matching generate.js.
 func validate(p paths, apps, widgets []*Manifest) {
 	all := append(append(append([]*Manifest{}, apps...), widgets...), coreServices(p)...)
 	var errs, warnings []string
 
-	// Duplicate nginx paths → duplicate location {} blocks (nginx won't load).
 	pathOwners := map[string][]string{}
 	var pathOrder []string
 	for _, m := range all {
@@ -40,7 +30,6 @@ func validate(p paths, apps, widgets []*Manifest) {
 		}
 	}
 
-	// Duplicate service names → duplicate compose service keys (invalid compose).
 	svcOwners := map[string][]string{}
 	var svcOrder []string
 	for _, m := range all {
@@ -58,7 +47,6 @@ func validate(p paths, apps, widgets []*Manifest) {
 		}
 	}
 
-	// depends_on must resolve to a provisioned service or another declared one.
 	known := map[string]bool{}
 	for _, s := range provisionedServices {
 		known[s] = true
@@ -78,7 +66,6 @@ func validate(p paths, apps, widgets []*Manifest) {
 		}
 	}
 
-	// An app with a route but no matching location won't be served as an SPA.
 	for _, m := range append(append([]*Manifest{}, apps...), widgets...) {
 		if m.Route == "" {
 			continue
@@ -95,9 +82,6 @@ func validate(p paths, apps, widgets []*Manifest) {
 		}
 	}
 
-	// Versioning hygiene — warn (never fail) so the ecosystem can adopt SemVer
-	// gradually. Every installable module should declare a valid version, a
-	// manifestVersion, and a nucleus compatibility range. See infra/nucleus-docs/VERSIONING.md.
 	for _, m := range append(append([]*Manifest{}, apps...), widgets...) {
 		if m.Version == "" {
 			warnings = append(warnings, fmt.Sprintf("%s has no \"version\" — every module should declare a SemVer version", m.label()))

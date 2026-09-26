@@ -1,25 +1,5 @@
 package main
 
-// Module management — the engine behind `nucleus modules` (CLI) and
-// `nucleus modules ui` (a small local web UI, see modules_cmd.go).
-//
-// It scans the GitHub org for installable modules, compares them with the
-// checkout, and installs/removes them:
-//
-//   - an app is a repo with a nucleus.app.json at its root → cloned to apps/<repo>;
-//   - a plugin/widget is a <id>/nucleus.{plugin,widget}.json folder inside a
-//     collection repo → added to plugins/ or widgets/ as a sparse checkout, so
-//     each one installs on its own;
-//   - repos marked nucleus.ignore, or without a manifest (hub, core, infra, …),
-//     are not modules.
-//
-// Nothing is named here beyond the directory conventions infra already uses:
-// dependencies come from the manifests (a widget's dependsOn, a plugin's
-// dependencies.{apps,plugins}), an app bundles the widget that shares its id, a
-// collection's `locked` entries (widgets/core) always come along, and plugins
-// need the plugin runtime. Applying a change is a normal stack rebuild — see
-// applyModules.
-
 import (
 	"encoding/base64"
 	"encoding/json"
@@ -43,44 +23,36 @@ const (
 	kindApp     moduleKind = "app"
 	kindPlugin  moduleKind = "plugin"
 	kindWidget  moduleKind = "widget"
-	kindService moduleKind = "service" // platform service a module needs (plugin-runtime)
+	kindService moduleKind = "service"
 )
 
-// hubProviderFile marks an app as the hub's dashboard provider — the widget
-// launcher (see hub/src/composables/useDashboardProvider.js). Pulse ships it.
 const hubProviderFile = "client/hub.js"
 
-// pluginRuntimeRepo is the one platform service with no manifest of its own;
-// infra already knows it by this name (see optionalModules).
 const pluginRuntimeRepo = "plugin-runtime"
 
-// module is one installable unit, merged from the org catalog and the checkout.
 type module struct {
 	Kind        moduleKind `json:"kind"`
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
-	Version     string     `json:"version"`          // available (remote) version
-	Repo        string     `json:"repo,omitempty"`   // org repo it comes from
-	Icon        string     `json:"icon,omitempty"`   // raw SVG
-	Requires    []string   `json:"requires"`         // keys (kind:id) it cannot run without
-	Bundles     []string   `json:"bundles"`          // keys installed/removed together with it
-	Hidden      bool       `json:"hidden,omitempty"` // bundled/required/service — not listed on its own
-	System      bool       `json:"system,omitempty"` // a locked app (e.g. the admin console)
-	Hosts       moduleKind `json:"hosts,omitempty"`  // kind this app launches/manages (widget, for a dashboard provider)
+	Version     string     `json:"version"`
+	Repo        string     `json:"repo,omitempty"`
+	Icon        string     `json:"icon,omitempty"`
+	Requires    []string   `json:"requires"`
+	Bundles     []string   `json:"bundles"`
+	Hidden      bool       `json:"hidden,omitempty"`
+	System      bool       `json:"system,omitempty"`
+	Hosts       moduleKind `json:"hosts,omitempty"`
 
 	Installed        bool   `json:"installed"`
 	InstalledVersion string `json:"installedVersion,omitempty"`
-	Local            bool   `json:"local,omitempty"` // installed, but in no org repo
-	localDir         string // where it lives in the checkout
-	required         bool   // a collection's locked entry
+	Local            bool   `json:"local,omitempty"`
+	localDir         string
+	required         bool
 }
 
 func (m *module) key() string { return string(m.Kind) + ":" + m.ID }
 
-// applyLocked interprets a manifest's `locked`: in a collection it marks the
-// base entry every other entry needs (widgets/core — installed with them, never
-// listed on its own); on an app it only means a system app.
 func (m *module) applyLocked(locked bool) {
 	if !locked {
 		return
@@ -92,7 +64,6 @@ func (m *module) applyLocked(locked bool) {
 	}
 }
 
-// manifestInfo is the part of any Nucleus manifest the installer reads.
 type manifestInfo struct {
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
@@ -117,7 +88,6 @@ func (mi manifestInfo) dependsOn() []string {
 	return many
 }
 
-// requires lists the keys a module of this kind cannot run without.
 func (mi manifestInfo) requires(kind moduleKind) []string {
 	var out []string
 	switch kind {
@@ -138,7 +108,6 @@ func (mi manifestInfo) requires(kind moduleKind) []string {
 	return out
 }
 
-// collectionDirs maps a collection kind to its folder in the checkout.
 var collectionDirs = map[moduleKind]string{kindPlugin: "plugins", kindWidget: "widgets"}
 
 var manifestFiles = map[moduleKind]string{
@@ -147,10 +116,9 @@ var manifestFiles = map[moduleKind]string{
 	kindWidget: "nucleus.widget.json",
 }
 
-// repoLayout classifies a repo from its file list.
 type repoLayout struct {
-	app         bool                    // nucleus.app.json at the root
-	collections map[moduleKind][]string // kind → entry dirs holding a manifest
+	app         bool
+	collections map[moduleKind][]string
 }
 
 func classifyRepo(files []string) (repoLayout, bool) {
@@ -173,8 +141,6 @@ func classifyRepo(files []string) (repoLayout, bool) {
 	}
 	return l, true
 }
-
-// ── GitHub ──────────────────────────────────────────────────────────────────
 
 type github struct {
 	org, token string
@@ -271,11 +237,6 @@ func (g github) file(repo, branch, path string) ([]byte, error) {
 	return g.get(fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", g.org, repo, path, branch), true)
 }
 
-// githubSettings resolves the org and a token, in order: infra/.env
-// (NUCLEUS_GITHUB_ORG / NUCLEUS_GITHUB_TOKEN), the environment (also
-// GITHUB_TOKEN), `gh auth token`, then the git credential helper — the same
-// credentials the checkout already clones with. The org defaults to the one
-// infra itself was cloned from.
 func githubSettings(p paths) (org, token string) {
 	env := func(k string) string {
 		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
@@ -312,8 +273,6 @@ func githubSettings(p paths) (org, token string) {
 
 var remoteRe = regexp.MustCompile(`github\.com[:/]([^/]+)/`)
 
-// remoteOrg extracts the owner from an https or ssh GitHub remote, and reports
-// whether it was ssh (clones then use the same transport and keys).
 func remoteOrg(url string) (org string, ssh bool) {
 	m := remoteRe.FindStringSubmatch(url)
 	if m == nil {
@@ -322,10 +281,6 @@ func remoteOrg(url string) (org string, ssh bool) {
 	return m[1], strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
-// ── Catalog ─────────────────────────────────────────────────────────────────
-
-// fetchCatalog scans every repo in the org and returns the modules it offers,
-// keyed by kind:id. Collection kinds also report which repo provides them.
 func fetchCatalog(g github) (map[string]*module, map[moduleKind]string, []string, error) {
 	repos, err := g.repos()
 	if err != nil {
@@ -445,8 +400,6 @@ func fetchCatalog(g github) (map[string]*module, map[moduleKind]string, []string
 	}
 	wg.Wait()
 
-	// A collection kind is served by ONE repo (the checkout has one plugins/
-	// and one widgets/ folder); drop entries other repos offer for it.
 	for k, m := range mods {
 		if repo, ok := collections[m.Kind]; ok && m.Repo != repo {
 			delete(mods, k)
@@ -460,9 +413,6 @@ func fetchCatalog(g github) (map[string]*module, map[moduleKind]string, []string
 	return mods, collections, errs, nil
 }
 
-// linkBundles makes an app carry the widget that shares its id (an app's own
-// dashboard widget, e.g. echo), and makes every collection entry carry that
-// collection's required (locked) entries.
 func linkBundles(mods map[string]*module) {
 	for _, m := range mods {
 		if m.Kind != kindApp {
@@ -486,8 +436,6 @@ func linkBundles(mods map[string]*module) {
 	}
 }
 
-// ── Local state ─────────────────────────────────────────────────────────────
-
 func readManifestFile(path string) (manifestInfo, bool) {
 	var mi manifestInfo
 	b, err := os.ReadFile(path)
@@ -497,7 +445,6 @@ func readManifestFile(path string) (manifestInfo, bool) {
 	return mi, true
 }
 
-// installedModules scans the checkout.
 func installedModules(p paths) map[string]*module {
 	out := map[string]*module{}
 	put := func(kind moduleKind, dir string, mi manifestInfo) {
@@ -558,7 +505,6 @@ func firstNonEmpty(s ...string) string {
 	return ""
 }
 
-// repoName is the org repo a clone came from (its origin), else its dir name.
 func repoName(dir string) string {
 	url := gitOut(dir, "remote", "get-url", "origin")
 	if url == "" {
@@ -575,8 +521,6 @@ func gitOut(dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// mergeModules overlays the checkout onto the catalog. Anything installed that
-// no repo offers is kept as Local (a custom module — never removed by us).
 func mergeModules(catalog, local map[string]*module) map[string]*module {
 	out := map[string]*module{}
 	for k, m := range catalog {
@@ -597,17 +541,13 @@ func mergeModules(catalog, local map[string]*module) map[string]*module {
 	return out
 }
 
-// ── Planning ────────────────────────────────────────────────────────────────
-
 type modulePlan struct {
-	Install  []*module `json:"install"`
-	Remove   []*module `json:"remove"`
-	Notes    []string  `json:"notes"`
-	Warnings []string  `json:"warnings"` // things that go that weren't asked for by name
-	Errors   []string  `json:"errors"`
-	// Extras is an opt-in follow-up removal the plan suggests — e.g. every
-	// widget, when the last widget host goes. Accepted with planOpts.Extras.
-	Extras *planExtras `json:"extras,omitempty"`
+	Install  []*module   `json:"install"`
+	Remove   []*module   `json:"remove"`
+	Notes    []string    `json:"notes"`
+	Warnings []string    `json:"warnings"`
+	Errors   []string    `json:"errors"`
+	Extras   *planExtras `json:"extras,omitempty"`
 }
 
 type planExtras struct {
@@ -617,12 +557,11 @@ type planExtras struct {
 }
 
 type planOpts struct {
-	Extras bool // also remove what the plan offers in Extras
+	Extras bool
 }
 
 func (pl modulePlan) empty() bool { return len(pl.Install) == 0 && len(pl.Remove) == 0 }
 
-// resolveKey finds a module from "id" or "kind:id" among the listed modules.
 func resolveKey(mods map[string]*module, ref string) (*module, error) {
 	if m, ok := mods[ref]; ok {
 		return m, nil
@@ -647,13 +586,6 @@ func resolveKey(mods map[string]*module, ref string) (*module, error) {
 	return nil, fmt.Errorf("%q is ambiguous — use one of: %s", ref, strings.Join(keys, ", "))
 }
 
-// planModules expands the requested installs (with everything they require or
-// bundle) and removals. A removal takes along what it bundles and — with a
-// warning — every installed module that needs it (removing the plugin runtime
-// removes the plugins). Removing the last widget host (an app that provides the
-// hub dashboard) offers, as Extras, to remove every widget too. Nothing that
-// isn't in any repo (Local) is ever removed; if it would have to be, the plan
-// fails instead.
 func planModules(mods map[string]*module, install, remove []string, opts planOpts) modulePlan {
 	pl := modulePlan{Install: []*module{}, Remove: []*module{}, Notes: []string{}, Warnings: []string{}, Errors: []string{}}
 	removing := map[string]bool{}
@@ -725,7 +657,7 @@ func planModules(mods map[string]*module, install, remove []string, opts planOpt
 			}
 			addInstall(dep, "needed by "+m.key())
 		}
-		pl.Install = append(pl.Install, m) // dependencies first
+		pl.Install = append(pl.Install, m)
 		if why != "" {
 			pl.Notes = append(pl.Notes, fmt.Sprintf("also installs %s (%s)", m.key(), why))
 		}
@@ -747,9 +679,6 @@ func planModules(mods map[string]*module, install, remove []string, opts planOpt
 		addInstall(m, "")
 	}
 
-	// Removing the last host of a kind (the widget launcher) makes that kind
-	// optional baggage: offer to remove all of it. Widgets an app that stays
-	// bundles belong to that app, so they're kept.
 	for _, m := range sortedModules(mods) {
 		if !removing[m.key()] || m.Hosts == "" {
 			continue
@@ -789,7 +718,6 @@ func planModules(mods map[string]*module, install, remove []string, opts planOpt
 		break
 	}
 
-	// Whatever stays installed but needs something being removed goes too.
 	for changed := true; changed; {
 		changed = false
 		for _, m := range sortedModules(mods) {
@@ -807,7 +735,6 @@ func planModules(mods map[string]*module, install, remove []string, opts planOpt
 		}
 	}
 
-	// A platform service goes once nothing that stays installed needs it.
 	if len(pl.Remove) > 0 {
 		needed := map[string]bool{}
 		for _, m := range mods {
@@ -827,8 +754,6 @@ func planModules(mods map[string]*module, install, remove []string, opts planOpt
 	return pl
 }
 
-// allInstalled lists every installed module a "remove all" may take, limited
-// to the given kinds (all kinds when none are given).
 func allInstalled(mods map[string]*module, kinds ...moduleKind) []string {
 	want := map[moduleKind]bool{}
 	for _, k := range kinds {
@@ -851,15 +776,12 @@ func keys(ms []*module) []string {
 	return out
 }
 
-// ── Executing ───────────────────────────────────────────────────────────────
-
-// gitRunner runs git with the org credentials supplied through the
-// environment (GIT_CONFIG_*), never on the command line or in .git/config.
+// Credentials go via GIT_CONFIG_* env, never argv or .git/config.
 type gitRunner struct {
 	org, token string
 	ssh        bool
 	out        io.Writer
-	base       string // overrides the GitHub URL (tests clone local repos)
+	base       string
 }
 
 func (g gitRunner) url(repo string) string {
@@ -887,9 +809,6 @@ func (g gitRunner) run(dir string, args ...string) error {
 	return cmd.Run()
 }
 
-// deletable reports why a checkout must not be deleted: uncommitted/untracked
-// work or commits no remote has. Ignored files (node_modules, dist, .env) are
-// listed separately so the plan can say they'll go too.
 func deletable(dir string) (ignored []string, err error) {
 	if st := realChanges(gitOut(dir, "status", "--porcelain")); st != "" {
 		return nil, fmt.Errorf("%s has uncommitted changes:\n%s", dir, st)
@@ -911,10 +830,6 @@ func deletable(dir string) (ignored []string, err error) {
 	return ignored, nil
 }
 
-// emptyTree reports whether dir holds no files at all — only (nested) empty
-// directories or OS litter. That's what Docker leaves behind when it recreates a
-// removed module's bind-mount source (e.g. apps/pulse/client), so it's safe to
-// clear rather than a reason to refuse.
 func emptyTree(dir string) bool {
 	empty := true
 	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -927,13 +842,12 @@ func emptyTree(dir string) bool {
 	return empty
 }
 
-// pruneSkeletons removes what Docker recreated for modules a plan removed.
 func pruneSkeletons(p paths, pl modulePlan, out io.Writer) {
 	seen := map[string]bool{}
 	for _, m := range pl.Remove {
 		dir := m.localDir
 		if _, isColl := collectionDirs[m.Kind]; isColl {
-			dir = filepath.Join(p.root, collectionDirs[m.Kind]) // only if the whole collection went
+			dir = filepath.Join(p.root, collectionDirs[m.Kind])
 		}
 		if dir == "" || seen[dir] || !exists(dir) || exists(filepath.Join(dir, ".git")) || !emptyTree(dir) {
 			continue
@@ -944,8 +858,6 @@ func pruneSkeletons(p paths, pl modulePlan, out io.Writer) {
 	}
 }
 
-// realChanges drops OS litter (Finder's .DS_Store) from `git status --porcelain`
-// output — it isn't anyone's work and shouldn't block a removal.
 func realChanges(status string) string {
 	var keep []string
 	for _, line := range strings.Split(status, "\n") {
@@ -956,8 +868,6 @@ func realChanges(status string) string {
 	return strings.Join(keep, "\n")
 }
 
-// checkRemovals verifies every removal is safe before anything is touched and
-// adds a note for ignored files that will be deleted with it.
 func checkRemovals(p paths, pl *modulePlan) {
 	for _, m := range pl.Remove {
 		var err error
@@ -981,18 +891,14 @@ func checkRemovals(p paths, pl *modulePlan) {
 	}
 }
 
-// executePlan applies a checked plan to the checkout. mods is the merged state
-// the plan was made from.
 func executePlan(p paths, g gitRunner, mods map[string]*module, pl modulePlan) error {
 	if len(pl.Errors) > 0 {
 		return errors.New(strings.Join(pl.Errors, "\n"))
 	}
-	// Collections: final set of entries per kind after the plan.
 	want := map[moduleKind]map[string]bool{}
 	touched := map[moduleKind]bool{}
 	for _, m := range mods {
-		// Local entries (custom, in no repo) are kept: dropping them from the
-		// sparse set would hide committed-but-unpushed work.
+		// Keep Local entries: dropping them from the sparse set would hide unpushed work.
 		if _, isColl := collectionDirs[m.Kind]; isColl && m.Installed {
 			if want[m.Kind] == nil {
 				want[m.Kind] = map[string]bool{}
@@ -1051,9 +957,6 @@ func executePlan(p paths, g gitRunner, mods map[string]*module, pl modulePlan) e
 	return nil
 }
 
-// syncCollection makes plugins/ or widgets/ hold exactly the wanted entries
-// (plus the collection's required ones) as a sparse checkout, cloning it
-// sparsely first if needed and deleting it once nothing optional is left.
 func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKind, want map[string]bool) error {
 	dir := filepath.Join(p.root, collectionDirs[kind])
 	var repo string
@@ -1096,7 +999,6 @@ func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKi
 	fmt.Fprintf(g.out, "▶ %s/ → %s\n", collectionDirs[kind], strings.Join(list, ", "))
 	if !isRepo {
 		if exists(dir) {
-			// Empty folders Docker recreated for a bind mount — safe to replace.
 			if !emptyTree(dir) {
 				return fmt.Errorf("%s exists and isn't a git checkout — not overwriting it", dir)
 			}
@@ -1112,13 +1014,11 @@ func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKi
 	return g.run(dir, append([]string{"sparse-checkout", "set", "--cone", "--"}, list...)...)
 }
 
-// ── Applying ────────────────────────────────────────────────────────────────
-
 type applyMode string
 
 const (
-	applyProduction applyMode = "production" // infra/production — blue/green, zero downtime
-	applyDev        applyMode = "dev"        // infra/nucleus up — the dev stack
+	applyProduction applyMode = "production"
+	applyDev        applyMode = "dev"
 	applyNone       applyMode = "none"
 )
 
@@ -1132,9 +1032,6 @@ func parseApplyMode(s string) (applyMode, error) {
 	return "", fmt.Errorf("unknown apply mode %q (production, dev or none)", s)
 }
 
-// applyModules rebuilds the stack so the checkout's modules take effect: the
-// generator re-derives nginx/compose, the builds pick up new sources, and
-// removed modules' containers go away as orphans.
 func applyModules(p paths, mode applyMode, out io.Writer) error {
 	var cmd *exec.Cmd
 	switch mode {
@@ -1151,7 +1048,6 @@ func applyModules(p paths, mode applyMode, out io.Writer) error {
 	return cmd.Run()
 }
 
-// changedDirs lists the checkout folders a plan created, replaced or deleted.
 func changedDirs(p paths, pl modulePlan) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -1180,10 +1076,7 @@ func changedDirs(p paths, pl modulePlan) []string {
 	return out
 }
 
-// recreateStaleMounts force-recreates running dev containers that bind-mount a
-// folder the plan replaced or deleted. Docker keeps such a mount pointing at
-// the old directory (a fresh clone at the same path is invisible to it), and
-// `up` alone won't recreate a service whose config didn't change.
+// Docker keeps bind mounts on the old directory, and `up` won't recreate an unchanged service.
 func recreateStaleMounts(p paths, dirs []string, out io.Writer) error {
 	if len(dirs) == 0 {
 		return nil
@@ -1224,8 +1117,6 @@ func recreateStaleMounts(p paths, dirs []string, out io.Writer) error {
 	return cmd.Run()
 }
 
-// runningStacks reports which Nucleus stacks have containers up: the dev stack
-// (compose project "nucleus") and/or a blue/green production color.
 func runningStacks() (dev, production bool) {
 	out, err := exec.Command("docker", "ps", "--format", `{{.Label "com.docker.compose.project"}}`).Output()
 	if err != nil {
@@ -1242,8 +1133,6 @@ func runningStacks() (dev, production bool) {
 	return
 }
 
-// stackHint warns when the chosen apply mode won't touch the stack that's
-// actually running (e.g. Production on a laptop running the dev stack).
 func stackHint(mode applyMode) string {
 	dev, prod := runningStacks()
 	switch {
@@ -1255,14 +1144,12 @@ func stackHint(mode applyMode) string {
 	return ""
 }
 
-// ── State (catalog + checkout), cached for the UI ───────────────────────────
-
 type moduleState struct {
 	p      paths
 	mu     sync.Mutex
 	cached map[string]*module
 	colls  map[moduleKind]string
-	warns  []string // repos that couldn't be read in the last scan
+	warns  []string
 	at     time.Time
 	gh     github
 	git    gitRunner
@@ -1276,8 +1163,6 @@ func newModuleState(p paths) *moduleState {
 		git: gitRunner{org: org, token: token, ssh: ssh}}
 }
 
-// modules returns the merged catalog + checkout. The remote catalog is cached
-// for a few minutes; the checkout is always read fresh.
 func (s *moduleState) modules(refresh bool) (map[string]*module, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1298,14 +1183,12 @@ func (s *moduleState) modules(refresh bool) (map[string]*module, error) {
 	return mergeModules(s.cached, installedModules(s.p)), nil
 }
 
-// warnings lists repos the last scan couldn't read.
 func (s *moduleState) warnings() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string{}, s.warns...)
 }
 
-// sortedModules lists modules for display: kind order, then name.
 func sortedModules(mods map[string]*module) []*module {
 	order := map[moduleKind]int{kindApp: 0, kindPlugin: 1, kindWidget: 2, kindService: 3}
 	list := make([]*module, 0, len(mods))
@@ -1321,7 +1204,6 @@ func sortedModules(mods map[string]*module) []*module {
 	return list
 }
 
-// ansiRe strips terminal colours from command output shown in the UI.
 var ansiRe = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]|\r")
 
 func stripANSI(b []byte) []byte { return ansiRe.ReplaceAll(b, nil) }
