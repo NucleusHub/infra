@@ -22,13 +22,15 @@ log_stage "Pulling latest changes..."
 
 ensure_networks
 set_mongo_image
+BIN="$("$INFRA/ensure-tool")"
+# Regenerate first so the data stack picks up services enabled since the last deploy (e.g. mail).
+( cd "$INFRA" && "$BIN" generate >/dev/null )
 ensure_data
 ensure_edge
 
 log_info "Active color: ${OLD} → deploying to: ${TARGET}"
 
 log_stage "Building images..."
-BIN="$("$INFRA/ensure-tool")"
 ( cd "$INFRA" && "$BIN" build "$@" )
 
 log_info "Snapshotting frontend build into ${TARGET}…"

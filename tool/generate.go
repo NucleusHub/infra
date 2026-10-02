@@ -672,6 +672,25 @@ services:
 `)
 	}
 
+	if domain := mailSenderDomain(p); domain != "" {
+		out.WriteString(`  mail:
+    image: boky/postfix:latest
+    restart: unless-stopped
+`)
+		out.WriteString(labelsBlock("mail", "", nil))
+		out.WriteString(`    networks:
+      - data
+    environment:
+      RELAYHOST: "[smtp.resend.com]:587"
+      RELAYHOST_USERNAME: resend
+      RELAYHOST_PASSWORD: ${RESEND_API_KEY}
+      ALLOWED_SENDER_DOMAINS: "` + domain + `"
+    volumes:
+      - mail_queue:/var/spool/postfix
+
+`)
+	}
+
 	out.WriteString("networks:\n  data:\n    name: " + dataNet + "\n    external: true\n")
 
 	out.WriteString("\nvolumes:\n")
@@ -684,7 +703,30 @@ services:
 	if needsRedis {
 		out.WriteString("  redis_data:\n    name: nucleus_redis_data\n")
 	}
+	if mailSenderDomain(p) != "" {
+		out.WriteString("  mail_queue:\n    name: nucleus_mail_queue\n")
+	}
 	return out.String()
+}
+
+func infraEnv(p paths, key string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return envFileValue(filepath.Join(p.infra, ".env"), key)
+}
+
+// The relay runs only once Resend is configured; Resend accepts only MAIL_FROM's verified domain.
+func mailSenderDomain(p paths) string {
+	if infraEnv(p, "RESEND_API_KEY") == "" {
+		return ""
+	}
+	from := strings.TrimSuffix(strings.TrimSpace(infraEnv(p, "MAIL_FROM")), ">")
+	at := strings.LastIndexByte(from, '@')
+	if at < 0 {
+		return ""
+	}
+	return strings.ToLower(from[at+1:])
 }
 
 func generateStackCompose(p paths, apps, widgets []*Manifest) string {

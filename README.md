@@ -69,6 +69,7 @@ resolve their own location).
 | `./production [--force] [-j N]` | Build all frontends and deploy the **prod** stack. |
 | `./update [repo…]` | `git pull` across all (or named) Nucleus repos. |
 | `./modules [install\|remove\|apply\|ui] …` | Install / remove apps, plugins and widgets from the GitHub org, then apply — see *Modules*. |
+| `./mail <subject> [to]` | Send an email (body on stdin) through the mail relay — see *`./mail`*. |
 
 ### `./dev`
 
@@ -118,6 +119,29 @@ it in a single graceful reload. See `BLUEGREEN.md` for the full flow.
 ./production --force    # ignore the cache, rebuild everything
 ./rollback              # one command back to the previous color
 ```
+
+### `./mail`
+
+Outgoing mail goes through a Postfix relay (`mail`, in the shared data stack)
+that forwards to Resend's SMTP. Set it up in `infra/.env`:
+
+```sh
+RESEND_API_KEY=re_...                          # Resend → API Keys (sending access is enough)
+MAIL_FROM=Nucleus <alerts@nucleus-home.dev>    # must be on a domain verified in Resend
+MAIL_TO=you@example.com                        # default recipient
+```
+
+The relay is generated only once `RESEND_API_KEY` is set; the next
+`./production` starts it. Then:
+
+```sh
+echo "Disk at 91%" | ./mail "nucleus: disk almost full"
+./mail "Deploy done" someone@else.com < report.txt
+```
+
+Containers on `nucleus-data-net` can send through `mail:587` without
+credentials (it accepts only private networks), and Postfix queues and retries
+when Resend is unreachable.
 
 ## The infra tool (`tool/`)
 

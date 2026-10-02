@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INFRA="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=infra/lib/bluegreen.sh
+source "$INFRA/lib/bluegreen.sh"
+
+usage() { echo "usage: echo body | infra/mail <subject> [to]" >&2; exit 2; }
+[ $# -ge 1 ] || usage
+
+env_value() { grep -E "^$1=" "$INFRA/.env" 2>/dev/null | tail -n1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//' || true; }
+
+SUBJECT="$1"
+FROM="$(env_value MAIL_FROM)"
+TO="${2:-$(env_value MAIL_TO)}"
+[ -n "$(env_value RESEND_API_KEY)" ] || die "RESEND_API_KEY is not set in infra/.env."
+[ -n "$FROM" ] || die "MAIL_FROM is not set in infra/.env."
+[ -n "$TO" ] || die "No recipient: pass one or set MAIL_TO in infra/.env."
+
+dc_data ps --status running --services 2>/dev/null | grep -qx mail \
+  || die "The mail relay is not running. Run infra/production (or: docker compose -p nucleus-data -f docker-compose.data.yml up -d mail)."
+
+[ -t 0 ] && BODY="" || BODY="$(cat)"
+
+printf 'From: %s\nTo: %s\nSubject: %s\nDate: %s\nContent-Type: text/plain; charset=UTF-8\n\n%s\n' \
+  "$FROM" "$TO" "$SUBJECT" "$(LC_ALL=C date '+%a, %d %b %Y %H:%M:%S %z')" "$BODY" \
+  | dc_data exec -T mail sendmail -t -f "$(sed -E 's/.*<([^>]+)>.*/\1/' <<<"$FROM")"
+
+log_info "Queued \"$SUBJECT\" for $TO"

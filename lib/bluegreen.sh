@@ -151,7 +151,7 @@ ensure_networks() {
 }
 
 ensure_data() {
-  log_info "Ensuring shared data stack (mongo/redis/minio) is up…"
+  log_info "Ensuring shared data stack (mongo/redis/minio/mail) is up…"
   dc_data up -d --wait --wait-timeout "$HEALTH_TIMEOUT" \
     || die "Shared data stack failed to become healthy."
 }
