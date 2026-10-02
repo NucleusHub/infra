@@ -33,6 +33,7 @@ const pluginRuntimeRepo = "plugin-runtime"
 type module struct {
 	Kind        moduleKind `json:"kind"`
 	ID          string     `json:"id"`
+	Slug        string     `json:"slug,omitempty"`
 	Name        string     `json:"name"`
 	Description string     `json:"description"`
 	Version     string     `json:"version"`
@@ -116,56 +117,54 @@ var manifestFiles = map[moduleKind]string{
 	kindWidget: "nucleus.widget.json",
 }
 
-type repoLayout struct {
-	app         bool
-	collections map[moduleKind][]string
-}
-
-func classifyRepo(files []string) (repoLayout, bool) {
-	l := repoLayout{collections: map[moduleKind][]string{}}
-	for _, f := range files {
-		if f == "nucleus.ignore" {
-			return repoLayout{}, false
-		}
-		if f == manifestFiles[kindApp] {
-			l.app = true
-		}
-		for kind := range collectionDirs {
-			if dir, file, ok := strings.Cut(f, "/"); ok && file == manifestFiles[kind] {
-				l.collections[kind] = append(l.collections[kind], dir)
-			}
-		}
-	}
-	for _, dirs := range l.collections {
-		sort.Strings(dirs)
-	}
-	return l, true
-}
-
-type github struct {
-	org, token string
+type marketplace struct {
+	url, token string
 	client     *http.Client
 }
 
-var githubAPI = "https://api.github.com"
+const defaultMarketplace = "https://nucleus-home.dev"
 
-// errEmptyRepo is GitHub's 409 for a repository with no commits yet.
-var errEmptyRepo = errors.New("empty repository")
+func marketplaceSettings(p paths) marketplace {
+	env := func(k string) string {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+		return envFileValue(filepath.Join(p.infra, ".env"), k)
+	}
+	url := strings.TrimRight(firstNonEmpty(env("NUCLEUS_MARKETPLACE_URL"), defaultMarketplace), "/")
+	return marketplace{url: url, token: env("NUCLEUS_MARKETPLACE_TOKEN"), client: &http.Client{Timeout: 20 * time.Second}}
+}
 
-func (g github) get(path string, raw bool) ([]byte, error) {
-	req, err := http.NewRequest("GET", githubAPI+path, nil)
+type mpItem struct {
+	Slug        string     `json:"slug"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Version     string     `json:"version"`
+	Status      string     `json:"status"`
+	Install     *mpInstall `json:"install"`
+}
+
+type mpInstall struct {
+	Kind        moduleKind      `json:"kind"`
+	Repo        string          `json:"repo"`
+	Dir         string          `json:"dir"`
+	Manifest    json.RawMessage `json:"manifest"`
+	HubProvider bool            `json:"hubProvider"`
+	IconSVG     string          `json:"iconSvg"`
+}
+
+func (mp marketplace) items() ([]mpItem, error) {
+	if mp.token == "" {
+		return nil, errors.New("no marketplace token — create one on the marketplace server " +
+			"(docker compose exec api npm run token -- create <name>) and set NUCLEUS_MARKETPLACE_TOKEN in infra/.env")
+	}
+	req, err := http.NewRequest("GET", mp.url+"/api/v1/internal/items", nil)
 	if err != nil {
 		return nil, err
 	}
-	if raw {
-		req.Header.Set("Accept", "application/vnd.github.raw")
-	} else {
-		req.Header.Set("Accept", "application/vnd.github+json")
-	}
-	if g.token != "" {
-		req.Header.Set("Authorization", "Bearer "+g.token)
-	}
-	res, err := g.client.Do(req)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mp.token)
+	res, err := mp.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -174,67 +173,19 @@ func (g github) get(path string, raw bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if res.StatusCode == http.StatusConflict {
-		return nil, errEmptyRepo
+	switch {
+	case res.StatusCode == http.StatusUnauthorized:
+		return nil, errors.New("the marketplace rejected the token — check NUCLEUS_MARKETPLACE_TOKEN (it may have been revoked)")
+	case res.StatusCode != 200:
+		return nil, fmt.Errorf("marketplace %s: %s", mp.url, res.Status)
 	}
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("GitHub %s: %s", path, res.Status)
+	var feed struct {
+		Items []mpItem `json:"items"`
 	}
-	return body, nil
-}
-
-type ghRepo struct {
-	Name          string `json:"name"`
-	DefaultBranch string `json:"default_branch"`
-	Archived      bool   `json:"archived"`
-}
-
-func (g github) repos() ([]ghRepo, error) {
-	var all []ghRepo
-	base := fmt.Sprintf("/orgs/%s/repos?type=all&per_page=100", g.org)
-	for page := 1; ; page++ {
-		body, err := g.get(fmt.Sprintf("%s&page=%d", base, page), false)
-		if err != nil && page == 1 {
-			// Not an org — try it as a user account.
-			base = fmt.Sprintf("/users/%s/repos?per_page=100", g.org)
-			body, err = g.get(fmt.Sprintf("%s&page=%d", base, page), false)
-		}
-		if err != nil {
-			return nil, err
-		}
-		var batch []ghRepo
-		if err := json.Unmarshal(body, &batch); err != nil {
-			return nil, err
-		}
-		all = append(all, batch...)
-		if len(batch) < 100 {
-			return all, nil
-		}
+	if err := json.Unmarshal(body, &feed); err != nil {
+		return nil, fmt.Errorf("marketplace %s: unreadable feed: %w", mp.url, err)
 	}
-}
-
-func (g github) tree(repo, branch string) ([]string, error) {
-	body, err := g.get(fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1", g.org, repo, branch), false)
-	if err != nil {
-		return nil, err
-	}
-	var t struct {
-		Tree []struct {
-			Path string `json:"path"`
-		} `json:"tree"`
-	}
-	if err := json.Unmarshal(body, &t); err != nil {
-		return nil, err
-	}
-	files := make([]string, len(t.Tree))
-	for i, e := range t.Tree {
-		files[i] = e.Path
-	}
-	return files, nil
-}
-
-func (g github) file(repo, branch, path string) ([]byte, error) {
-	return g.get(fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s", g.org, repo, path, branch), true)
+	return feed.Items, nil
 }
 
 func githubSettings(p paths) (org, token string) {
@@ -281,124 +232,74 @@ func remoteOrg(url string) (org string, ssh bool) {
 	return m[1], strings.HasPrefix(url, "git@") || strings.HasPrefix(url, "ssh://")
 }
 
-func fetchCatalog(g github) (map[string]*module, map[moduleKind]string, []string, error) {
-	repos, err := g.repos()
+func fetchCatalog(mp marketplace) (map[string]*module, map[moduleKind]string, []string, error) {
+	items, err := mp.items()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var (
-		mu          sync.Mutex
-		wg          sync.WaitGroup
-		sem         = make(chan struct{}, 8)
-		mods        = map[string]*module{}
-		collections = map[moduleKind]string{}
-		errs        []string
-	)
-	add := func(m *module) {
-		mu.Lock()
-		defer mu.Unlock()
-		if _, dup := mods[m.key()]; !dup {
-			mods[m.key()] = m
-		}
+	mods, collections, warns := buildCatalog(items)
+	if len(mods) == 0 {
+		return nil, nil, nil, fmt.Errorf("the marketplace at %s lists nothing installable", mp.url)
 	}
-	fetchManifest := func(repo ghRepo, kind moduleKind, dir string, files map[string]bool) {
-		defer wg.Done()
-		sem <- struct{}{}
-		defer func() { <-sem }()
-		prefix := ""
-		if dir != "" {
-			prefix = dir + "/"
-		}
-		body, err := g.file(repo.Name, repo.DefaultBranch, prefix+manifestFiles[kind])
-		var mi manifestInfo
-		if err == nil {
-			err = json.Unmarshal(body, &mi)
-		}
-		if err != nil {
-			mu.Lock()
-			errs = append(errs, fmt.Sprintf("%s/%s: %v", repo.Name, prefix+manifestFiles[kind], err))
-			mu.Unlock()
-			return
-		}
-		id := mi.ID
-		if id == "" {
-			id = dir
-			if id == "" {
-				id = repo.Name
-			}
-		}
-		m := &module{Kind: kind, ID: id, Name: mi.Name, Description: mi.Description, Version: mi.Version,
-			Repo: repo.Name, Requires: mi.requires(kind), Bundles: []string{}}
-		m.applyLocked(mi.Locked)
-		if m.Name == "" {
-			m.Name = id
-		}
-		icon := mi.Icon
-		if icon == "" || !strings.HasSuffix(icon, ".svg") {
-			icon = "icon.svg"
-		}
-		if kind == kindApp && files[prefix+hubProviderFile] {
-			m.Hosts = kindWidget
-		}
-		if files[prefix+icon] {
-			if svg, err := g.file(repo.Name, repo.DefaultBranch, prefix+icon); err == nil {
-				m.Icon = string(svg)
-			}
-		}
-		add(m)
-	}
+	return mods, collections, warns, nil
+}
 
-	for _, repo := range repos {
-		if repo.Archived {
+func buildCatalog(items []mpItem) (map[string]*module, map[moduleKind]string, []string) {
+	mods := map[string]*module{}
+	collections := map[moduleKind]string{}
+	var warns []string
+
+	for _, it := range items {
+		in := it.Install
+		if in == nil || (it.Status != "published" && it.Status != "unlisted") {
 			continue
 		}
-		wg.Add(1)
-		go func(repo ghRepo) {
-			defer wg.Done()
-			sem <- struct{}{}
-			list, err := g.tree(repo.Name, repo.DefaultBranch)
-			<-sem
-			if errors.Is(err, errEmptyRepo) {
-				return
+		if in.Repo == "" {
+			warns = append(warns, it.Slug+": no repo in its install metadata")
+			continue
+		}
+		var m *module
+		switch in.Kind {
+		case kindService:
+			if in.Repo != pluginRuntimeRepo {
+				warns = append(warns, fmt.Sprintf("%s: unknown service repo %q", it.Slug, in.Repo))
+				continue
 			}
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err.Error())
-				mu.Unlock()
-				return
+			m = &module{Kind: kindService, ID: pluginRuntimeRepo, Slug: it.Slug, Name: firstNonEmpty(it.Name, "Plugin runtime"),
+				Description: it.Description, Version: it.Version, Repo: in.Repo, Requires: []string{}, Bundles: []string{}}
+		case kindApp, kindPlugin, kindWidget:
+			var mi manifestInfo
+			if err := json.Unmarshal(in.Manifest, &mi); err != nil || len(in.Manifest) == 0 || string(in.Manifest) == "null" {
+				warns = append(warns, it.Slug+": no readable manifest in its install metadata")
+				continue
 			}
-			if repo.Name == pluginRuntimeRepo {
-				add(&module{Kind: kindService, ID: pluginRuntimeRepo, Name: "Plugin runtime",
-					Description: "Discovers installed plugins and serves the plugin registry (/api/plugins). Every plugin needs it.",
-					Repo:        repo.Name, Requires: []string{}, Bundles: []string{}})
-				return
+			id := firstNonEmpty(mi.ID, in.Dir, in.Repo)
+			if _, isColl := collectionDirs[in.Kind]; isColl && in.Dir != "" && in.Dir != id {
+				warns = append(warns, fmt.Sprintf("%s: folder %q doesn't match its id %q", it.Slug, in.Dir, id))
+				continue
 			}
-			layout, ok := classifyRepo(list)
-			if !ok {
-				return
+			m = &module{Kind: in.Kind, ID: id, Slug: it.Slug, Name: firstNonEmpty(mi.Name, it.Name, id),
+				Description: firstNonEmpty(mi.Description, it.Description), Version: firstNonEmpty(mi.Version, it.Version),
+				Repo: in.Repo, Icon: in.IconSVG, Requires: mi.requires(in.Kind), Bundles: []string{}}
+			m.applyLocked(mi.Locked)
+			if in.Kind == kindApp && in.HubProvider {
+				m.Hosts = kindWidget
 			}
-			files := map[string]bool{}
-			for _, f := range list {
-				files[f] = true
-			}
-			if layout.app {
-				wg.Add(1)
-				go fetchManifest(repo, kindApp, "", files)
-			}
-			for kind, dirs := range layout.collections {
-				mu.Lock()
-				if _, taken := collections[kind]; !taken || repo.Name == collectionDirs[kind] {
-					collections[kind] = repo.Name
-				}
-				mu.Unlock()
-				for _, dir := range dirs {
-					wg.Add(1)
-					go fetchManifest(repo, kind, dir, files)
+			if _, isColl := collectionDirs[in.Kind]; isColl {
+				if _, taken := collections[in.Kind]; !taken || in.Repo == collectionDirs[in.Kind] {
+					collections[in.Kind] = in.Repo
 				}
 			}
-		}(repo)
+		default:
+			warns = append(warns, fmt.Sprintf("%s: unknown install kind %q", it.Slug, in.Kind))
+			continue
+		}
+		if _, dup := mods[m.key()]; dup {
+			warns = append(warns, fmt.Sprintf("%s: %s is listed twice — keeping the first", it.Slug, m.key()))
+			continue
+		}
+		mods[m.key()] = m
 	}
-	wg.Wait()
 
 	for k, m := range mods {
 		if repo, ok := collections[m.Kind]; ok && m.Repo != repo {
@@ -406,11 +307,8 @@ func fetchCatalog(g github) (map[string]*module, map[moduleKind]string, []string
 		}
 	}
 	linkBundles(mods)
-	sort.Strings(errs)
-	if len(errs) > 0 && len(mods) == 0 {
-		return nil, nil, nil, errors.New(strings.Join(errs, "; "))
-	}
-	return mods, collections, errs, nil
+	sort.Strings(warns)
+	return mods, collections, warns
 }
 
 func linkBundles(mods map[string]*module) {
@@ -548,6 +446,8 @@ type modulePlan struct {
 	Warnings []string    `json:"warnings"`
 	Errors   []string    `json:"errors"`
 	Extras   *planExtras `json:"extras,omitempty"`
+	Dirty    bool        `json:"dirty,omitempty"`
+	force    bool
 }
 
 type planExtras struct {
@@ -868,7 +768,10 @@ func realChanges(status string) string {
 	return strings.Join(keep, "\n")
 }
 
-func checkRemovals(p paths, pl *modulePlan) {
+// With force, uncommitted or unpushed work doesn't block a removal: it's
+// reported as a warning and discarded with the module.
+func checkRemovals(p paths, pl *modulePlan, force bool) {
+	pl.force = force
 	for _, m := range pl.Remove {
 		var err error
 		var ignored []string
@@ -882,8 +785,12 @@ func checkRemovals(p paths, pl *modulePlan) {
 				err = fmt.Errorf("%s has uncommitted changes:\n%s", m.localDir, st)
 			}
 		}
-		if err != nil {
+		switch {
+		case err != nil && force:
+			pl.Warnings = append(pl.Warnings, "discarding: "+err.Error())
+		case err != nil:
 			pl.Errors = append(pl.Errors, err.Error())
+			pl.Dirty = true
 		}
 		if len(ignored) > 0 {
 			pl.Notes = append(pl.Notes, fmt.Sprintf("removing %s also deletes ignored files: %s", m.key(), strings.Join(ignored, ", ")))
@@ -915,6 +822,11 @@ func executePlan(p paths, g gitRunner, mods map[string]*module, pl modulePlan) e
 				return err
 			}
 		default:
+			if pl.force {
+				if err := discardFolder(g, m.localDir); err != nil {
+					return err
+				}
+			}
 			delete(want[m.Kind], filepath.Base(m.localDir))
 			touched[m.Kind] = true
 		}
@@ -950,14 +862,26 @@ func executePlan(p paths, g gitRunner, mods map[string]*module, pl modulePlan) e
 	}
 
 	for kind := range touched {
-		if err := syncCollection(p, g, mods, kind, want[kind]); err != nil {
+		if err := syncCollection(p, g, mods, kind, want[kind], pl.force); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKind, want map[string]bool) error {
+// Drops a collection member's local edits so the sparse checkout can take the folder away.
+func discardFolder(g gitRunner, dir string) error {
+	repo := filepath.Dir(dir)
+	rel, _ := filepath.Rel(repo, dir)
+	if realChanges(gitOut(repo, "status", "--porcelain", "--", rel)) == "" {
+		return nil
+	}
+	fmt.Fprintf(g.out, "▶ Discarding uncommitted changes in %s\n", dir)
+	exec.Command("git", "-C", repo, "reset", "-q", "--", rel).Run()
+	return os.RemoveAll(dir)
+}
+
+func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKind, want map[string]bool, force bool) error {
 	dir := filepath.Join(p.root, collectionDirs[kind])
 	var repo string
 	ids := map[string]bool{}
@@ -985,7 +909,7 @@ func syncCollection(p paths, g gitRunner, mods map[string]*module, kind moduleKi
 			return nil
 		}
 		fmt.Fprintf(g.out, "▶ Removing %s/ (nothing left installed)\n", collectionDirs[kind])
-		if _, err := deletable(dir); err != nil {
+		if _, err := deletable(dir); err != nil && !force {
 			return err
 		}
 		return os.RemoveAll(dir)
@@ -1151,32 +1075,28 @@ type moduleState struct {
 	colls  map[moduleKind]string
 	warns  []string
 	at     time.Time
-	gh     github
+	mp     marketplace
+	org    string
 	git    gitRunner
 }
 
 func newModuleState(p paths) *moduleState {
 	org, token := githubSettings(p)
 	_, ssh := remoteOrg(gitOut(p.infra, "remote", "get-url", "origin"))
-	return &moduleState{p: p,
-		gh:  github{org: org, token: token, client: &http.Client{Timeout: 20 * time.Second}},
+	return &moduleState{p: p, mp: marketplaceSettings(p), org: org,
 		git: gitRunner{org: org, token: token, ssh: ssh}}
 }
 
 func (s *moduleState) modules(refresh bool) (map[string]*module, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.gh.org == "" {
-		return nil, errors.New("can't tell which GitHub org to scan — set NUCLEUS_GITHUB_ORG in infra/.env")
+	if s.org == "" {
+		return nil, errors.New("can't tell which GitHub org modules are cloned from — set NUCLEUS_GITHUB_ORG in infra/.env")
 	}
 	if refresh || s.cached == nil || time.Since(s.at) > 5*time.Minute {
-		mods, colls, warns, err := fetchCatalog(s.gh)
+		mods, colls, warns, err := fetchCatalog(s.mp)
 		if err != nil {
-			hint := ""
-			if s.gh.token == "" {
-				hint = " (no GitHub token found — set NUCLEUS_GITHUB_TOKEN in infra/.env for private repos)"
-			}
-			return nil, fmt.Errorf("scanning %s: %w%s", s.gh.org, err, hint)
+			return nil, fmt.Errorf("reading the marketplace catalog: %w", err)
 		}
 		s.cached, s.colls, s.warns, s.at = mods, colls, warns, time.Now()
 	}

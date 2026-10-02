@@ -396,7 +396,18 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; line-height: 1.
 .plan .warn { color: var(--wait); }
 .extras { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); padding: 0.6rem 0.8rem; border-radius: var(--r-sm); font-size: var(--fs-xs); color: var(--wait); background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.18); cursor: pointer; }
 .extras input { accent-color: var(--wait); }
+.extras--danger { color: var(--danger); background: var(--danger-soft); box-shadow: inset 0 0 0 1px rgba(251, 113, 133, 0.22); }
+.extras--danger input { accent-color: var(--danger); }
 .hint { margin-top: var(--s-2); font-size: var(--fs-xs); color: var(--wait); }
+.look { display: flex; align-items: center; gap: var(--s-3); margin-top: var(--s-3); padding: 0.6rem 0.8rem; border-radius: var(--r-sm); font-size: var(--fs-xs); color: var(--ink-2); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.18); cursor: pointer; }
+.look[hidden] { display: none; }
+.look input { accent-color: var(--accent-soft); }
+.look__swatch { width: 18px; height: 18px; flex: none; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.look__text { min-width: 0; }
+.look__text b { color: var(--ink-hi); font-weight: 500; }
+.drop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; opacity: 0; background: rgba(5, 3, 9, 0.62); transition: opacity var(--dur-fast) var(--ease-std); }
+.drop.show { opacity: 1; }
+.drop__panel { padding: var(--s-6) var(--s-7, 2.5rem); border-radius: var(--r-md); font-family: var(--font-display); font-size: var(--fs-h4); color: var(--ink-hi); box-shadow: inset 0 0 0 2px rgba(192, 132, 252, 0.5); background: var(--halo-faint); }
 
 .overlay { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; padding: var(--s-4); background: rgba(3, 2, 8, 0.66); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .overlay.show { display: grid; animation: fade-in 0.2s ease; }
@@ -463,6 +474,73 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .confetti { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
 
+.card { cursor: pointer; }
+.card:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 3px; }
+
+.modal { position: fixed; inset: 0; z-index: 35; display: flex; align-items: center; justify-content: center; padding: var(--s-4); }
+.modal[hidden] { display: none !important; }
+.modal__scrim { position: absolute; inset: 0; background: rgba(5, 3, 9, 0.62); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.modal__panel { --glass-radius: var(--r-md); position: relative; display: flex; flex-direction: column; width: 100%; max-width: 44rem; max-height: min(88vh, 900px); overflow: hidden; }
+.modal.enter .modal__scrim, .modal.leave .modal__scrim { transition: opacity var(--dur-fast) var(--ease-std); }
+.modal.enter .modal__panel, .modal.leave .modal__panel { transition: transform 0.22s var(--ease), opacity var(--dur-fast) var(--ease-std); }
+.modal.from .modal__scrim { opacity: 0; }
+.modal.from .modal__panel { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.985); }
+.modal__head { display: flex; flex: none; align-items: flex-start; justify-content: space-between; gap: var(--s-4); padding: var(--s-5) var(--s-5) var(--s-4); border-bottom: 1px solid var(--line-soft); }
+.modal__title { font-size: var(--fs-h4); letter-spacing: -0.012em; line-height: 1.35; }
+.modal__close { display: grid; flex: none; place-items: center; width: 30px; height: 30px; margin: -0.25rem -0.25rem 0 0; border-radius: var(--r-xs); color: var(--ink-3); transition: color var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std); }
+.modal__close:hover { color: var(--ink-hi); background: rgba(255, 255, 255, 0.07); }
+.modal__body { flex: 1; min-height: 0; padding: var(--s-5); overflow-y: auto; overscroll-behavior: contain; }
+.modal__foot { display: flex; flex: none; align-items: center; gap: var(--s-3); padding: var(--s-4) var(--s-5); border-top: 1px solid var(--line-soft); }
+.modal__foot-start { min-width: 0; margin-right: auto; font-size: var(--fs-xs); color: var(--ink-4); }
+.modal__actions { display: flex; gap: var(--s-2); margin-left: auto; }
+.modal__btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5em; padding: 0.6rem 1.05rem; border-radius: var(--r-pill); font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; transition: background-color var(--dur-fast) var(--ease-std), color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std); }
+.modal__btn--quiet { color: var(--ink-2); background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px var(--line); }
+.modal__btn--quiet:hover { color: var(--ink-hi); background: rgba(255, 255, 255, 0.1); }
+.modal__btn--primary { color: #0a0612; background: linear-gradient(180deg, #f3ecff 0%, #d8c8f8 100%); box-shadow: 0 10px 26px -14px rgba(192, 132, 252, 0.6); }
+.modal__btn--primary:hover { box-shadow: 0 14px 32px -14px rgba(192, 132, 252, 0.78); }
+.modal__btn--danger { color: #1a0508; background: linear-gradient(180deg, #ffa5b3 0%, #fb7185 100%); box-shadow: 0 10px 26px -14px rgba(251, 113, 133, 0.6); }
+
+.detail { display: flex; flex-direction: column; gap: var(--s-5); }
+.detail__top { display: flex; align-items: center; gap: var(--s-4); }
+.detail__icon { display: grid; place-items: center; width: 52px; height: 52px; flex: none; border-radius: var(--r-sm); color: var(--accent-ink); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.18); font-family: var(--font-display); font-size: 1.2rem; font-weight: 600; }
+.detail__icon img { width: 26px; height: 26px; }
+.detail__headline { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: var(--s-4); flex-wrap: wrap; }
+.detail__kind { display: flex; align-items: center; gap: 0.6em; font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-4); }
+.detail__official { display: inline-flex; align-items: center; gap: 0.3em; color: var(--accent-ink); }
+.detail__badges { display: flex; gap: var(--s-2); }
+.detail__description { font-size: var(--fs-sm); line-height: 1.62; color: var(--ink-2); white-space: pre-line; text-wrap: pretty; }
+.detail__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s-4); padding: var(--s-4); border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.detail__fact dt { font-family: var(--font-mono); font-size: var(--fs-mono); letter-spacing: var(--tracking-mono); text-transform: uppercase; color: var(--ink-4); }
+.detail__fact dd { margin: 0.3rem 0 0; font-size: var(--fs-sm); color: var(--ink); overflow-wrap: anywhere; }
+.detail__mono { font-family: var(--font-mono); font-size: 0.8rem; }
+.detail__bundled { display: flex; align-items: flex-start; gap: 0.55em; padding: 0.7rem 0.85rem; border-radius: var(--r-sm); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-2); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.16); }
+.detail__bundled .glyph { color: var(--accent-soft); margin-top: 1px; }
+.detail__links { display: flex; flex-wrap: wrap; gap: var(--s-4); }
+.detail__link { display: inline-flex; align-items: center; gap: 0.35em; font-size: var(--fs-xs); color: var(--accent-ink); text-decoration: none; }
+.detail__link:hover { color: var(--ink-hi); }
+.reach { display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-4); border-radius: var(--r-sm); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.16); }
+.reach + .reach { margin-top: calc(var(--s-5) * -1 + var(--s-3)); }
+.reach--needs { background: var(--wait-soft); box-shadow: inset 0 0 0 1px rgba(252, 211, 77, 0.2); }
+.reach--quiet { background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.reach__icon { display: grid; place-items: center; width: 30px; height: 30px; flex: none; border-radius: var(--r-xs); color: var(--accent-ink); background: rgba(192, 132, 252, 0.1); }
+.reach--needs .reach__icon { color: var(--wait); background: rgba(252, 211, 77, 0.1); }
+.reach--quiet .reach__icon { color: var(--ink-3); background: rgba(255, 255, 255, 0.05); }
+.reach__body { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+.reach__text { font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); text-wrap: pretty; }
+.reach__actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.action { display: inline-flex; align-items: center; gap: 0.4em; padding: 0.42rem 0.72rem; border-radius: var(--r-pill); font-family: var(--font-display); font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; color: var(--accent-ink); background: var(--halo-faint); box-shadow: inset 0 0 0 1px rgba(192, 132, 252, 0.28); transition: color var(--dur-fast) var(--ease-std), background-color var(--dur-fast) var(--ease-std); }
+.action:hover { color: var(--ink-hi); background: var(--halo); }
+.action img { width: 14px; height: 14px; }
+@media (max-width: 560px) {
+	.modal { padding: var(--s-3); align-items: flex-end; }
+	.modal__panel { max-height: 92vh; }
+	.modal__head, .modal__body, .modal__foot { padding-inline: var(--s-4); }
+	.modal__foot { flex-wrap: wrap; }
+	.modal__foot-start { width: 100%; margin-right: 0; }
+	.modal__actions { width: 100%; }
+	.modal__btn { flex: 1; }
+}
+
 @media (max-width: 860px) {
 	.intro__top { flex-direction: column; align-items: flex-start; gap: var(--s-6); }
 	.grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
@@ -506,6 +584,11 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 						<svg class="glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 5v6h-6"/></svg>
 						Rescan
 					</button>
+					<button type="button" class="chip" id="importBuild" title="Install a build downloaded from the configurator on the Nucleus site (/create)">
+						<svg class="glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4.5 14.5v3.5A1.5 1.5 0 0 0 6 19.5h12a1.5 1.5 0 0 0 1.5-1.5v-3.5"/></svg>
+						Import build
+					</button>
+					<input type="file" id="importFile" accept=".json,application/json" hidden>
 					<button type="button" class="chip chip--danger" id="removeAll" title="Queue every installed module for removal — back to core + infra + hub" hidden>
 						<svg class="glyph" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 12.5h9L17.5 7"/></svg>
 						Uninstall everything
@@ -554,6 +637,8 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 	</div>
 	<ul class="plan" id="plan"></ul>
 	<label class="extras" id="extras" hidden><input type="checkbox" id="extrasBox"> <span id="extrasLabel"></span></label>
+	<label class="extras extras--danger" id="force" hidden><input type="checkbox" id="forceBox"> <span>Remove anyway — discard the uncommitted and unpushed work listed above</span></label>
+	<label class="look" id="look" hidden><input type="checkbox" id="lookBox" checked> <span class="look__swatch" id="lookSwatch"></span> <span class="look__text" id="lookLabel"></span></label>
 	<div class="hint" id="stackHint" hidden></div>
 </div>
 
@@ -574,6 +659,27 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		</div>
 	</div>
 </div>
+<div class="modal" id="detail" hidden>
+	<div class="modal__scrim" id="detailScrim"></div>
+	<div class="modal__panel glass glass--deep" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+		<header class="modal__head">
+			<h2 class="modal__title" id="detailTitle"></h2>
+			<button type="button" class="modal__close" id="detailClose" aria-label="Close">
+				<svg class="glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+			</button>
+		</header>
+		<div class="modal__body" id="detailBody"></div>
+		<footer class="modal__foot">
+			<span class="modal__foot-start" id="detailNote"></span>
+			<div class="modal__actions">
+				<button type="button" class="modal__btn modal__btn--quiet" id="detailCancel">Close</button>
+				<button type="button" class="modal__btn modal__btn--primary" id="detailConfirm"></button>
+			</div>
+		</footer>
+	</div>
+</div>
+
+<div class="drop" id="drop" aria-hidden="true"><div class="drop__panel">Drop a build file to import it</div></div>
 <canvas class="confetti" id="confetti" aria-hidden="true"></canvas>
 
 <script>
@@ -595,21 +701,24 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		['service', 'Services', 'Service'],
 	]
 	const KIND_LABEL = Object.fromEntries(KINDS.map(([k, , one]) => [k, one]))
-	const state = { modules: [], byKey: {}, warnings: [], stacks: {}, loaded: false, filter: '', installedOnly: false, query: '', install: new Set(), remove: new Set(), extras: false, mode: 'production' }
+	const state = { modules: [], byKey: {}, warnings: [], stacks: {}, loaded: false, filter: '', installedOnly: false, query: '', install: new Set(), remove: new Set(), extras: false, force: false, mode: 'production', imported: null, look: null, lookOn: true }
 
 	const ICONS = {
 		alert: '<path d="M12 9v4M12 16.5h.01"/><path d="M10.3 4.4 2.6 17.6A2 2 0 0 0 4.3 20.6h15.4a2 2 0 0 0 1.7-3L13.7 4.4a2 2 0 0 0-3.4 0Z"/>',
 		check: '<path d="M5 12.5l4.2 4.2L19 7"/>',
 		repo: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19"/>',
+		plug: '<path d="M9 3.4v4.2M15 3.4v4.2"/><path d="M6.4 7.6h11.2v4.2A5.6 5.6 0 0 1 12 17.4a5.6 5.6 0 0 1-5.6-5.6Z"/><path d="M12 17.4v3.2"/>',
+		pulse: '<path d="M12 2 22 12 12 22 2 12Z"/><path d="M12 8.5 15.5 12 12 15.5 8.5 12Z" fill="currentColor" stroke="none"/>',
+		external: '<path d="M14 4.6h5.4V10"/><path d="M19.4 4.6 11 13"/><path d="M18.2 14.4v4.2a1.6 1.6 0 0 1-1.6 1.6H5.4a1.6 1.6 0 0 1-1.6-1.6V7.4a1.6 1.6 0 0 1 1.6-1.6h4.2"/>',
 	}
 	const glyph = (name, size = 14, cls = '') =>
 		`<svg class="glyph ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
 
-	async function api(path, body) {
+	async function api(path, body, raw) {
 		const res = await fetch(path, {
 			method: body ? 'POST' : 'GET',
 			headers: { 'X-Modules-Token': token || '', ...(body ? { 'Content-Type': 'application/json' } : {}) },
-			body: body ? JSON.stringify(body) : undefined,
+			body: body ? (raw ? body : JSON.stringify(body)) : undefined,
 		})
 		const text = await res.text()
 		let data
@@ -665,15 +774,20 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		$('removeAll').hidden = !state.modules.some(removable)
 	}
 
-	function card(m) {
-		const k = key(m)
-		const queued = state.install.has(k) || state.remove.has(k)
+	function badges(m) {
 		const update = m.installed && m.installedVersion && m.version && m.installedVersion !== m.version
 		let badge = ''
 		if (m.local) badge = '<span class="badge" title="Installed, but not in any repo of the org"><span class="badge__dot"></span>Local</span>'
 		else if (update) badge = `<span class="badge badge--update" title="Run infra/update to pull it"><span class="badge__dot"></span>${esc(m.installedVersion)} → ${esc(m.version)}</span>`
 		else if (m.installed) badge = '<span class="badge badge--installed"><span class="badge__dot"></span>Installed</span>'
 		if (m.system) badge += '<span class="badge badge--system" title="A system app — it can\'t be disabled from Admin"><span class="badge__dot"></span>System</span>'
+		return badge
+	}
+
+	function card(m) {
+		const k = key(m)
+		const queued = state.install.has(k) || state.remove.has(k)
+		const badge = badges(m)
 
 		const needs = (m.requires || []).filter((r) => !(state.byKey[r] || {}).hidden)
 		const rel = [
@@ -692,7 +806,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 				: '<button type="button" class="btn btn--glass" data-act="install">Install</button>'
 		}
 		const source = [m.version && `v${m.version}`, m.repo].filter(Boolean).map(esc).join(' · ')
-		return `<article class="card glass glass--interactive ${queued ? 'is-pending' : ''}" data-key="${esc(k)}">
+		return `<article class="card glass glass--interactive ${queued ? 'is-pending' : ''}" data-key="${esc(k)}" tabindex="0" aria-label="${esc(m.name)} — ${esc(KIND_LABEL[m.kind] || m.kind)}. Press Enter for details">
 			<header class="card__head">
 				<span class="card__icon">${iconHTML(m)}</span>
 				<span class="card__meta">${badge}<span class="card__kind">${esc(KIND_LABEL[m.kind] || m.kind)}</span></span>
@@ -746,22 +860,31 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 	let planSeq = 0
 	async function renderBar() {
 		renderStackHint()
+		renderLook()
 		const n = state.install.size + state.remove.size
-		$('bar').classList.toggle('show', n > 0)
-		if (!n) { state.extras = false; return }
+		const look = state.look && state.lookOn
+		$('bar').classList.toggle('show', n > 0 || !!state.look)
+		if (!n && !state.look) { state.extras = false; state.force = false; $('force').hidden = true; return }
 		const parts = []
 		if (state.install.size) parts.push(`${state.install.size} to install`)
 		if (state.remove.size) parts.push(`${state.remove.size} to remove`)
-		$('sum').textContent = parts.join(' · ')
+		if (look) parts.push('new appearance')
+		$('sum').textContent = parts.join(' · ') || 'Nothing to change'
+		$('apply').disabled = !n && !look
 		const seq = ++planSeq
 		try {
-			const plan = await api('/api/plan', { install: [...state.install], remove: [...state.remove], extras: state.extras })
+			const plan = await api('/api/plan', { install: [...state.install], remove: [...state.remove], extras: state.extras, force: state.force })
 			if (seq !== planSeq) return
+			const imported = state.imported
 			$('plan').innerHTML = [
 				...plan.errors.map((e) => `<li class="err">✗ ${esc(e)}</li>`),
 				...plan.warnings.map((w) => `<li class="warn">⚠ ${esc(w)}</li>`),
+				...(imported ? imported.notes.map((t) => `<li class="warn">⚠ ${esc(t)}</li>`) : []),
 				...plan.notes.map((t) => `<li>· ${esc(t)}</li>`),
+				...(imported && imported.present.length ? [`<li>· already installed: ${imported.present.map((k) => esc(label(k))).join(', ')}</li>`] : []),
 			].join('')
+			$('force').hidden = !plan.dirty && !state.force
+			$('forceBox').checked = state.force
 			$('extras').hidden = !plan.extras
 			if (plan.extras) {
 				$('extrasLabel').textContent = `${plan.extras.label}: ${plan.extras.modules.map(label).join(', ')}`
@@ -769,12 +892,50 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 			} else {
 				state.extras = false
 			}
-			$('apply').disabled = plan.errors.length > 0
+			$('apply').disabled = plan.errors.length > 0 || (!n && !look)
 		} catch (e) {
 			if (seq !== planSeq) return
 			$('plan').innerHTML = `<li class="err">✗ ${esc(e.message)}</li>`
 			$('apply').disabled = true
 		}
+	}
+
+	const LOOK_WORDS = { dark: 'Dark', light: 'Light', system: 'System', frosted: 'frosted', clear: 'clear', solid: 'solid', none: 'no', aurora: 'aurora', grid: 'grid', dust: 'dust' }
+	function renderLook() {
+		const a = state.look
+		$('look').hidden = !a
+		if (!a) return
+		const accent = a.accent === 'custom' ? a.accentColor : a.accent[0].toUpperCase() + a.accent.slice(1)
+		$('lookSwatch').style.background = `linear-gradient(135deg, ${a.accentColor}, ${a.accentSoft})`
+		$('lookLabel').innerHTML = `Apply the appearance${a.name ? ` of <b>${esc(a.name)}</b>` : ''}: `
+			+ esc(`${LOOK_WORDS[a.theme]} theme, ${accent} accent, ${LOOK_WORDS[a.glass]} glass, ${LOOK_WORDS[a.wallpaper]} wallpaper, radius ${a.radius}, type ×${a.typeScale}, motion ${a.motion}`)
+		$('lookBox').checked = state.lookOn
+	}
+
+	async function importBuild(file) {
+		if (!file) return
+		let text
+		try { text = await file.text() } catch (e) { return alertImport(e.message) }
+		try {
+			const imp = await api('/api/import', text, true)
+			for (const k of imp.install) { state.remove.delete(k); state.install.add(k) }
+			state.imported = imp
+			state.look = imp.appearance || null
+			state.lookOn = true
+			render()
+		} catch (e) {
+			alertImport(e.message)
+		}
+	}
+
+	function alertImport(message) {
+		state.imported = { notes: [`Couldn't import that file: ${message}`], present: [] }
+		state.look = null
+		$('bar').classList.add('show')
+		$('sum').textContent = 'Import failed'
+		$('plan').innerHTML = `<li class="err">✗ ${esc(state.imported.notes[0])}</li>`
+		$('apply').disabled = true
+		state.imported = null
 	}
 
 	function setCompact(compact) {
@@ -811,7 +972,8 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 	}
 
 	async function apply() {
-		const body = { install: [...state.install], remove: [...state.remove], extras: state.extras, mode: state.mode }
+		const body = { install: [...state.install], remove: [...state.remove], extras: state.extras, force: state.force, mode: state.mode,
+			appearance: state.look && state.lookOn ? state.look : undefined }
 		tailShown = []; tailCount = 0
 		showLog('')
 		$('runDot').className = 'dot'
@@ -852,7 +1014,8 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 			setCompact(false)
 			return
 		}
-		state.install.clear(); state.remove.clear(); state.extras = false
+		state.install.clear(); state.remove.clear(); state.extras = false; state.force = false
+		state.imported = null; state.look = null
 		$('runTitle').textContent = 'Done'
 		$('celebrate').classList.add('on')
 		confetti()
@@ -906,6 +1069,153 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		requestAnimationFrame(frame)
 	}
 
+	const sentenceList = (names) =>
+		names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+	const listed = (keys) => keys.map((k) => state.byKey[k]).filter((m) => m && !m.hidden)
+	let detailKey = null
+	let detailReturn = null
+
+	function openDetail(k, keepReturn) {
+		const m = state.byKey[k]
+		if (!m) return
+		if (!keepReturn) detailReturn = document.activeElement
+		detailKey = k
+		renderDetail()
+		const el = $('detail')
+		if (el.hidden) {
+			el.hidden = false
+			el.classList.add('from', 'enter')
+			void el.offsetHeight
+			el.classList.remove('from')
+			setTimeout(() => el.classList.remove('enter'), 240)
+		}
+		$('detailBody').scrollTop = 0
+		$('detailClose').focus()
+	}
+
+	function closeDetail() {
+		const el = $('detail')
+		if (el.hidden) return
+		el.classList.add('leave', 'from')
+		setTimeout(() => {
+			el.hidden = true
+			el.classList.remove('leave', 'from')
+			detailKey = null
+			if (detailReturn && document.contains(detailReturn)) detailReturn.focus()
+		}, 180)
+	}
+
+	function renderDetail() {
+		const m = state.byKey[detailKey]
+		if (!m) return closeDetail()
+		const k = key(m)
+		$('detailTitle').textContent = m.name
+
+		const needs = listed(m.requires || [])
+		const missing = needs.filter((n) => !n.installed && !state.install.has(key(n)))
+		const neededBy = state.modules.filter((x) => x.installed && !x.hidden && (x.requires || []).includes(k))
+		const bundled = listed(m.bundles || []).length || (m.bundles || []).length
+
+		const facts = [
+			{ label: 'Version', value: m.version || '—', code: true },
+			{ label: 'Installed', value: m.installed ? (m.installedVersion ? `v${m.installedVersion}` : 'Yes') : 'Not installed', code: m.installed && !!m.installedVersion },
+			m.repo && { label: 'Repository', value: m.repo, code: true },
+			{ label: 'ID', value: m.id, code: true },
+		].filter(Boolean)
+
+		const reach = []
+		if (needs.length) {
+			reach.push(`<div class="reach reach--needs">
+				<span class="reach__icon">${glyph('alert', 16)}</span>
+				<div class="reach__body">
+					<p class="reach__text">Needs ${esc(sentenceList(needs.map((n) => n.name)))} to work.${missing.length ? '' : ' Already there.'}</p>
+					${missing.length ? `<div class="reach__actions">${missing.map((n) =>
+						`<button type="button" class="action" data-open="${esc(key(n))}">${n.icon ? iconHTML(n) : ''}Get ${esc(n.name)}</button>`).join('')}</div>` : ''}
+				</div>
+			</div>`)
+		}
+		if (m.hosts) {
+			reach.push(`<div class="reach">
+				<span class="reach__icon">${glyph('plug', 16)}</span>
+				<div class="reach__body"><p class="reach__text">This application launches your ${esc(m.hosts)}s — it's the dashboard they live on.</p></div>
+			</div>`)
+		}
+		if (neededBy.length) {
+			reach.push(`<div class="reach reach--quiet">
+				<span class="reach__icon">${glyph('plug', 16)}</span>
+				<div class="reach__body"><p class="reach__text">${esc(sentenceList(neededBy.map((n) => n.name)))} ${neededBy.length === 1 ? 'needs' : 'need'} this — removing it takes ${neededBy.length === 1 ? 'it' : 'them'} along.</p></div>
+			</div>`)
+		}
+
+		const repoUrl = m.repo && state.org ? `https://github.com/${encodeURIComponent(state.org)}/${encodeURIComponent(m.repo)}` : ''
+		$('detailBody').innerHTML = `<div class="detail">
+			<div class="detail__top">
+				<span class="detail__icon">${iconHTML(m)}</span>
+				<div class="detail__headline">
+					<p class="detail__kind">${esc(KIND_LABEL[m.kind] || m.kind)}
+						${m.repo && !m.local ? `<span class="detail__official">${glyph('check', 13)} Official</span>` : ''}</p>
+					<span class="detail__badges">${badges(m)}</span>
+				</div>
+			</div>
+			${m.description ? `<p class="detail__description">${esc(m.description)}</p>` : ''}
+			<dl class="detail__facts">${facts.map((f) =>
+				`<div class="detail__fact"><dt>${esc(f.label)}</dt><dd class="${f.code ? 'detail__mono' : ''}">${esc(f.value)}</dd></div>`).join('')}</dl>
+			${reach.join('')}
+			${bundled ? `<p class="detail__bundled">${glyph('pulse', 15)}<span>Ships with ${bundled} widget${bundled === 1 ? '' : 's'} — part of the app rather than a separate install.</span></p>` : ''}
+			${repoUrl ? `<div class="detail__links"><a class="detail__link" href="${esc(repoUrl)}" target="_blank" rel="noreferrer noopener">Source ${glyph('external', 13)}</a></div>` : ''}
+		</div>`
+
+		const confirm = $('detailConfirm')
+		const queuedInstall = state.install.has(k), queuedRemove = state.remove.has(k)
+		confirm.hidden = !!m.local
+		if (queuedInstall || queuedRemove) {
+			confirm.textContent = queuedInstall ? 'Don\'t install' : 'Don\'t remove'
+			confirm.className = 'modal__btn modal__btn--quiet'
+			confirm.dataset.act = 'undo'
+		} else if (m.installed) {
+			confirm.textContent = 'Remove'
+			confirm.className = 'modal__btn modal__btn--danger'
+			confirm.dataset.act = 'remove'
+		} else {
+			confirm.textContent = 'Install'
+			confirm.className = 'modal__btn modal__btn--primary'
+			confirm.dataset.act = 'install'
+		}
+		$('detailNote').textContent = m.local
+			? 'Not from any repo in the org — managed by hand.'
+			: queuedInstall ? 'Queued to install — apply from the bar below.'
+			: queuedRemove ? 'Queued to remove — apply from the bar below.'
+			: m.system ? 'A system app: it can\'t be disabled from Admin.' : ''
+	}
+
+	$('detailConfirm').addEventListener('click', (e) => {
+		const k = detailKey
+		if (!k) return
+		const act = e.currentTarget.dataset.act
+		if (act === 'undo') { state.install.delete(k); state.remove.delete(k) }
+		else if (act === 'install') state.install.add(k)
+		else if (act === 'remove') state.remove.add(k)
+		render()
+		closeDetail()
+	})
+	$('detailBody').addEventListener('click', (e) => {
+		const open = e.target.closest('[data-open]')
+		if (open) openDetail(open.dataset.open, true)
+	})
+	$('detailClose').addEventListener('click', closeDetail)
+	$('detailCancel').addEventListener('click', closeDetail)
+	$('detailScrim').addEventListener('pointerdown', (e) => { e.preventDefault(); closeDetail() })
+	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape' && !$('detail').hidden) closeDetail()
+		if (e.key === 'Tab' && !$('detail').hidden) {
+			const f = [...$('detail').querySelectorAll('button:not([hidden]), a[href]')].filter((x) => x.offsetParent !== null)
+			if (!f.length) return
+			const first = f[0], last = f[f.length - 1]
+			if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+			else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+		}
+	})
+
 	const fine = matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches
 	let sheenFrame = 0
 	if (fine) {
@@ -935,12 +1245,19 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		}
 		const btn = e.target.closest('button')
 		const cardEl = e.target.closest('.card')
-		if (!btn || !cardEl) return
+		if (!cardEl) return
+		if (!btn) return openDetail(cardEl.dataset.key)
 		const k = cardEl.dataset.key
 		if (btn.dataset.undo) { state.install.delete(k); state.remove.delete(k) }
 		else if (btn.dataset.act === 'install') state.install.add(k)
 		else if (btn.dataset.act === 'remove') state.remove.add(k)
 		render()
+	})
+	$('main').addEventListener('keydown', (e) => {
+		const cardEl = e.target.closest('.card')
+		if (!cardEl || e.target !== cardEl || (e.key !== 'Enter' && e.key !== ' ')) return
+		e.preventDefault()
+		openDetail(cardEl.dataset.key)
 	})
 	$('removeAll').addEventListener('click', () => {
 		state.install.clear()
@@ -949,6 +1266,7 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 		render()
 	})
 	$('extrasBox').addEventListener('change', (e) => { state.extras = e.target.checked; renderBar() })
+	$('forceBox').addEventListener('change', (e) => { state.force = e.target.checked; renderBar() })
 	$('kinds').addEventListener('click', (e) => {
 		const tab = e.target.closest('[data-filter]')
 		if (tab) { state.filter = tab.dataset.filter; render() }
@@ -956,7 +1274,22 @@ pre.log { display: none; margin: 0; padding: var(--s-4) var(--s-5); overflow: au
 	$('installedOnly').addEventListener('click', () => { state.installedOnly = !state.installedOnly; render() })
 	$('search').addEventListener('input', (e) => { state.query = e.target.value; render() })
 	$('refresh').addEventListener('click', () => load(true))
-	$('clear').addEventListener('click', () => { state.install.clear(); state.remove.clear(); state.extras = false; render() })
+	$('clear').addEventListener('click', () => { state.install.clear(); state.remove.clear(); state.extras = false; state.force = false; state.imported = null; state.look = null; render() })
+	$('importBuild').addEventListener('click', () => $('importFile').click())
+	$('importFile').addEventListener('change', (e) => { importBuild(e.target.files[0]); e.target.value = '' })
+	$('lookBox').addEventListener('change', (e) => { state.lookOn = e.target.checked; renderBar() })
+	let dragDepth = 0
+	const dragsFile = (e) => [...(e.dataTransfer?.types || [])].includes('Files')
+	addEventListener('dragenter', (e) => { if (!dragsFile(e) || !token) return; dragDepth++; $('drop').classList.add('show') })
+	addEventListener('dragleave', (e) => { if (!dragsFile(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('drop').classList.remove('show') })
+	addEventListener('dragover', (e) => { if (dragsFile(e)) e.preventDefault() })
+	addEventListener('drop', (e) => {
+		if (!dragsFile(e)) return
+		e.preventDefault()
+		dragDepth = 0
+		$('drop').classList.remove('show')
+		if (token) importBuild(e.dataTransfer.files[0])
+	})
 	$('mode').addEventListener('click', (e) => {
 		const b = e.target.closest('[data-mode]')
 		if (!b) return

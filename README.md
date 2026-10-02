@@ -23,13 +23,16 @@ directory (e.g. one Docker recreated for an app's bind mount) is ignored.
 
 ### Installing and removing modules — `./modules`
 
-`./modules` scans the GitHub org infra was cloned from and shows every app,
-plugin and widget it offers next to what's installed:
+`./modules` reads the catalog from the Nucleus marketplace and shows every app,
+plugin and widget it offers next to what's installed. The code itself is still
+cloned from the GitHub org infra was cloned from:
 
 ```bash
 ./modules                          # list installed + available
 ./modules install shelf spotify    # install (with dependencies), then apply
 ./modules remove spotify           # remove (with what it bundles), then apply
+./modules import home.nucleus.json # install a build from the site's /create, apply its look
+./modules appearance [reset]       # show (or drop) the imported look
 ./modules apply [--dev]            # just rebuild the stack from the checkout
 ./modules ui                       # the same in a small local web UI
 ```
@@ -45,13 +48,38 @@ plugin and widget it offers next to what's installed:
   `locked` entries (`widgets/core`) — and plugins bring the plugin runtime.
 - **Safety.** A removal is refused while something installed still needs it,
   and whenever the folder has uncommitted or unpushed work; ignored files that
-  would go with it (e.g. a `.env`) are listed first. Modules that aren't in any
+  would go with it (e.g. a `.env`) are listed first. `--force` (or the
+  *Remove anyway* checkbox in the UI, shown when a removal is blocked) removes
+  it regardless and discards that work. Modules that aren't in any
   repo are shown as *Local* and never touched. Removing an app deletes its code,
   not its data in MongoDB/MinIO.
-- **Credentials.** The org's repos are private, so the scan needs a token:
+- **The catalog** comes from the marketplace's internal feed
+  (`/api/v1/internal/items`), which carries each part's manifest, repo and
+  folder, read out of the org's repos by the marketplace seed
+  (`npm run seed:sync` in nucleus-web). It needs an API token:
+  `NUCLEUS_MARKETPLACE_TOKEN` in `infra/.env` (or the environment) — create one
+  on the marketplace server with
+  `docker compose exec api npm run token -- create <name>`. The marketplace is
+  `https://nucleus-home.dev` unless `NUCLEUS_MARKETPLACE_URL` says otherwise.
+  A part that is in the org but not (yet) in the marketplace is not offered —
+  re-run the seed after adding one.
+- **Cloning.** The org's repos are private, so installing needs git access:
   `NUCLEUS_GITHUB_TOKEN` in `infra/.env` (or the environment), else
-  `gh auth token`, else whatever git already uses for github.com. The org can be
-  overridden with `NUCLEUS_GITHUB_ORG`.
+  `gh auth token`, else whatever git already uses for github.com (an ssh
+  checkout clones over ssh). The org can be overridden with
+  `NUCLEUS_GITHUB_ORG`.
+- **Importing a build.** The configurator on the Nucleus site (`/create`)
+  downloads a `*.nucleus.json`; `./modules import <file>` (or *Import build* /
+  drag-and-drop in the UI) installs every app, plugin and widget it lists with
+  their dependencies. Core and Hub are always there and skipped; parts the
+  marketplace doesn't offer are listed and skipped; per-package settings and
+  Smart aren't applied. Its appearance (theme, accent, radius, glass,
+  transparency, type scale, motion, wallpaper) is written to
+  `../state/appearance.json`, which nginx serves as `/appearance.json` and
+  `core/useAppearance.js` applies at runtime by overriding the Tailwind theme
+  variables — no rebuild needed, a reload shows it. `--no-appearance` keeps the
+  current look; `./modules appearance reset` goes back to stock. A theme picked
+  in the app still wins over the build's default.
 - **The UI** listens on `127.0.0.1:7777` (`--addr` to change, `--no-open` to not
   launch a browser) and prints a link with a one-time token; its API refuses
   requests without it. On a remote server, reach it over an SSH tunnel
@@ -68,7 +96,7 @@ resolve their own location).
 | `./nucleus [--all] <compose args>` | Dev Compose passthrough — **app-scoped by default**. |
 | `./production [--force] [-j N]` | Build all frontends and deploy the **prod** stack. |
 | `./update [repo…]` | `git pull` across all (or named) Nucleus repos. |
-| `./modules [install\|remove\|apply\|ui] …` | Install / remove apps, plugins and widgets from the GitHub org, then apply — see *Modules*. |
+| `./modules [install\|remove\|import\|appearance\|apply\|ui] …` | Install / remove apps, plugins and widgets from the GitHub org, then apply — see *Modules*. |
 | `./mail <subject> [to]` | Send an email (body on stdin) through the mail relay — see *`./mail`*. |
 
 ### `./dev`

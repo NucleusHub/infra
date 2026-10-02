@@ -36,11 +36,13 @@ func runModules(p paths, args []string) error {
 	noApply := fs.Bool("no-apply", false, "change the checkout only; don't rebuild the stack")
 	yes := fs.Bool("yes", false, "don't ask for confirmation")
 	fs.BoolVar(yes, "y", false, "shorthand for --yes")
-	refresh := fs.Bool("refresh", false, "rescan the org even if a recent scan is cached")
+	refresh := fs.Bool("refresh", false, "re-read the marketplace even if a recent read is cached")
 	addr := fs.String("addr", "127.0.0.1:7777", "ui: address to listen on")
 	noOpen := fs.Bool("no-open", false, "ui: don't open a browser")
 	all := fs.Bool("all", false, "remove: every installed module (optionally only the given kinds)")
 	withExtras := fs.Bool("with-extras", false, "also do the plan's optional follow-up (e.g. remove all widgets with the widget launcher)")
+	force := fs.Bool("force", false, "remove even when a module has uncommitted or unpushed work (it's discarded)")
+	noAppearance := fs.Bool("no-appearance", false, "import: install the build's modules but leave the appearance as it is")
 	var ids []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -70,7 +72,7 @@ func runModules(p paths, args []string) error {
 		}
 		printModules(mods)
 		for _, w := range state.warnings() {
-			warn("couldn't read " + w)
+			warn("skipped " + w)
 		}
 		return nil
 	case "install", "add", "remove", "rm", "uninstall":
@@ -97,6 +99,7 @@ func runModules(p paths, args []string) error {
 				return nil
 			}
 		}
+		discard := *force
 		plan := func(extras bool) modulePlan {
 			var pl modulePlan
 			if installing {
@@ -104,7 +107,7 @@ func runModules(p paths, args []string) error {
 			} else {
 				pl = planModules(mods, nil, ids, planOpts{Extras: extras})
 			}
-			checkRemovals(p, &pl)
+			checkRemovals(p, &pl, discard)
 			return pl
 		}
 		pl := plan(*withExtras)
@@ -112,6 +115,15 @@ func runModules(p paths, args []string) error {
 		if len(pl.Errors) == 0 && !pl.empty() {
 			if hint := stackHint(mode); hint != "" {
 				warn(hint)
+			}
+		}
+		if pl.Dirty && !*yes {
+			warn("removing these discards work that isn't committed or pushed (listed above)")
+			if confirm("Discard it and remove anyway?") {
+				discard = true
+				pl = plan(pl.Extras != nil && pl.Extras.Applied)
+				fmt.Println()
+				printPlan(pl, mode)
 			}
 		}
 		if pl.Extras != nil && !pl.Extras.Applied && !*yes && len(pl.Errors) == 0 {
@@ -135,6 +147,13 @@ func runModules(p paths, args []string) error {
 			return err
 		}
 		return applyPlan(p, pl, mode, os.Stdout)
+	case "import":
+		if len(ids) != 1 {
+			return errors.New("usage: modules import <build.nucleus.json> [--dev|--no-apply] [--yes] [--no-appearance]")
+		}
+		return importBuild(p, state, ids[0], mode, *yes, *noAppearance, *refresh)
+	case "appearance":
+		return runAppearance(p, ids)
 	case "apply":
 		if mode == applyNone {
 			return nil
@@ -143,7 +162,73 @@ func runModules(p paths, args []string) error {
 	case "ui":
 		return serveModulesUI(p, state, *addr, !*noOpen)
 	}
-	return fmt.Errorf("unknown modules command %q (list, install, remove, apply, ui)", sub)
+	return fmt.Errorf("unknown modules command %q (list, install, remove, import, appearance, apply, ui)", sub)
+}
+
+func importBuild(p paths, state *moduleState, file string, mode applyMode, yes, noAppearance, refresh bool) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	b, err := parseBuild(data)
+	if err != nil {
+		return err
+	}
+	mods, err := state.modules(refresh)
+	if err != nil {
+		return err
+	}
+	imp := resolveBuild(mods, b)
+	if noAppearance {
+		imp.Appearance = nil
+	}
+	printImport(imp)
+	pl := planModules(mods, imp.Install, nil, planOpts{})
+	printPlan(pl, mode)
+	if len(pl.Errors) > 0 {
+		return errors.New("nothing changed")
+	}
+	if pl.empty() && imp.Appearance == nil {
+		fmt.Println("Nothing to do.")
+		return nil
+	}
+	if !yes && !confirm("Proceed?") {
+		return errors.New("cancelled")
+	}
+	state.git.out = os.Stdout
+	if err := executePlan(p, state.git, mods, pl); err != nil {
+		return err
+	}
+	if imp.Appearance != nil {
+		if err := writeAppearance(p, *imp.Appearance); err != nil {
+			return err
+		}
+		fmt.Printf("▶ Appearance saved to %s\n", appearancePath(p))
+	}
+	return applyPlan(p, pl, mode, os.Stdout)
+}
+
+func runAppearance(p paths, args []string) error {
+	switch {
+	case len(args) == 0:
+		a, err := readAppearance(p)
+		if err != nil {
+			return err
+		}
+		if a == nil {
+			fmt.Println("Stock appearance (no state/appearance.json). Import a build with `modules import` to set one.")
+			return nil
+		}
+		fmt.Printf("%s%s%s\n  %s\n", cBold, firstNonEmpty(a.Name, "Appearance"), cReset, a.summary())
+		return nil
+	case len(args) == 1 && args[0] == "reset":
+		if err := os.Remove(appearancePath(p)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		fmt.Println("Appearance reset to stock — reload open Nucleus tabs to see it.")
+		return nil
+	}
+	return errors.New("usage: modules appearance [reset]")
 }
 
 var kindNames = map[string]moduleKind{
@@ -151,10 +236,16 @@ var kindNames = map[string]moduleKind{
 	"widget": kindWidget, "widgets": kindWidget, "service": kindService, "services": kindService,
 }
 
+// The dev servers that mount a changed folder restart before the rebuild, not
+// after it: until then Vite keeps serving what it had cached, and an open tab
+// asks for files of a module that's already gone.
 func applyPlan(p paths, pl modulePlan, mode applyMode, out io.Writer) error {
-	err := applyModules(p, mode, out)
-	if err == nil && mode == applyDev {
+	var err error
+	if mode == applyDev {
 		err = recreateStaleMounts(p, changedDirs(p, pl), out)
+	}
+	if err == nil {
+		err = applyModules(p, mode, out)
 	}
 	pruneSkeletons(p, pl, out)
 	return err
@@ -214,6 +305,9 @@ func printPlan(pl modulePlan, mode applyMode) {
 	for _, e := range pl.Errors {
 		fmt.Printf("  %s✗ %s%s\n", cRed, e, cReset)
 	}
+	if pl.Dirty {
+		fmt.Printf("  %s· --force removes it anyway and discards that work%s\n", cDim, cReset)
+	}
 	if len(pl.Errors) == 0 && !pl.empty() {
 		if mode == applyNone {
 			fmt.Println("  then: nothing (--no-apply) — run `modules apply` later")
@@ -253,10 +347,12 @@ func (j *job) snapshot() map[string]any {
 }
 
 type uiRequest struct {
-	Install []string `json:"install"`
-	Remove  []string `json:"remove"`
-	Mode    string   `json:"mode"`
-	Extras  bool     `json:"extras"`
+	Install    []string    `json:"install"`
+	Remove     []string    `json:"remove"`
+	Mode       string      `json:"mode"`
+	Extras     bool        `json:"extras"`
+	Force      bool        `json:"force"`
+	Appearance *appearance `json:"appearance"`
 }
 
 func serveModulesUI(p paths, state *moduleState, addr string, open bool) error {
@@ -316,8 +412,29 @@ func modulesHandler(p paths, state *moduleState, token string) http.Handler {
 			return
 		}
 		dev, prod := runningStacks()
-		reply(w, map[string]any{"org": state.gh.org, "modules": sortedModules(mods), "warnings": state.warnings(),
-			"stacks": map[string]bool{"dev": dev, "production": prod}})
+		current, _ := readAppearance(p)
+		reply(w, map[string]any{"org": state.org, "modules": sortedModules(mods), "warnings": state.warnings(),
+			"stacks": map[string]bool{"dev": dev, "production": prod}, "appearance": current})
+	}))
+	mux.HandleFunc("POST /api/import", authed(func(w http.ResponseWriter, r *http.Request) {
+		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		b, err := parseBuild(data)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		mods, err := state.modules(false)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		reply(w, resolveBuild(mods, b))
 	}))
 	mux.HandleFunc("POST /api/plan", authed(func(w http.ResponseWriter, r *http.Request) {
 		req, err := readReq(r)
@@ -331,7 +448,7 @@ func modulesHandler(p paths, state *moduleState, token string) http.Handler {
 			return
 		}
 		pl := planModules(mods, req.Install, req.Remove, planOpts{Extras: req.Extras})
-		checkRemovals(p, &pl)
+		checkRemovals(p, &pl, req.Force)
 		reply(w, pl)
 	}))
 	mux.HandleFunc("POST /api/run", authed(func(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +470,9 @@ func modulesHandler(p paths, state *moduleState, token string) http.Handler {
 		}
 		cur.running, cur.done, cur.ok = true, false, false
 		cur.title = fmt.Sprintf("%d to install, %d to remove, apply: %s", len(req.Install), len(req.Remove), mode)
+		if req.Appearance != nil {
+			cur.title = fmt.Sprintf("%d to install, %d to remove, new appearance, apply: %s", len(req.Install), len(req.Remove), mode)
+		}
 		cur.log.Reset()
 		cur.mu.Unlock()
 
@@ -363,11 +483,24 @@ func modulesHandler(p paths, state *moduleState, token string) http.Handler {
 					return err
 				}
 				pl := planModules(mods, req.Install, req.Remove, planOpts{Extras: req.Extras})
-				checkRemovals(p, &pl)
+				checkRemovals(p, &pl, req.Force)
 				g := state.git
 				g.out = cur
 				if err := executePlan(p, g, mods, pl); err != nil {
 					return err
+				}
+				if req.Appearance != nil {
+					a := *req.Appearance
+					raw, _ := json.Marshal(a)
+					var fields map[string]any
+					json.Unmarshal(raw, &fields)
+					fields["accent"], fields["customAccent"] = a.Accent, a.AccentColor
+					norm, _ := normalizeAppearance(fields)
+					norm.Name = strings.TrimSpace(a.Name)
+					if err := writeAppearance(p, norm); err != nil {
+						return err
+					}
+					fmt.Fprintf(cur, "▶ Appearance saved to %s\n", appearancePath(p))
 				}
 				if pl.empty() && mode == applyNone {
 					return nil

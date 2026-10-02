@@ -321,6 +321,14 @@ server {
         add_header Cache-Control "no-store" always;
         try_files /maintenance.json =204;
     }
+
+    # Appearance from an imported /create build (infra/modules import), read by
+    # core/useAppearance.js. Absent → 204, which means the stock look.
+    location = /appearance.json {
+        root /srv/state;
+        add_header Cache-Control "no-store" always;
+        try_files /appearance.json =204;
+    }
 ` + strings.Join(blocks, "\n") + `
 
     location ~* ^(/watchlist)?/favicon\.ico$ {
@@ -407,6 +415,14 @@ server {
         root /srv/state;
         add_header Cache-Control "no-store" always;
         try_files /maintenance.json =204;
+    }
+
+    # Appearance from an imported /create build (infra/modules import), read by
+    # core/useAppearance.js. Absent → 204, which means the stock look.
+    location = /appearance.json {
+        root /srv/state;
+        add_header Cache-Control "no-store" always;
+        try_files /appearance.json =204;
     }
 ` + strings.Join(apiBlocks, "\n") + `
 ` + strings.Join(spaBlocks, "\n") + `

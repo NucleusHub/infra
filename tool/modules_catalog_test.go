@@ -9,22 +9,108 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestClassifyRepo(t *testing.T) {
-	l, ok := classifyRepo([]string{"nucleus.app.json", "client/main.js"})
-	if !ok || !l.app {
-		t.Fatalf("app repo not detected: %+v", l)
+func feedFixture() []mpItem {
+	in := func(kind moduleKind, repo, dir, manifest string) *mpInstall {
+		return &mpInstall{Kind: kind, Repo: repo, Dir: dir, Manifest: json.RawMessage(manifest)}
 	}
-	l, ok = classifyRepo([]string{"README.md", "a/nucleus.plugin.json", "b/nucleus.plugin.json", "b/server/route.js", "x/y/nucleus.plugin.json"})
-	if !ok || l.app || !reflect.DeepEqual(l.collections[kindPlugin], []string{"a", "b"}) {
-		t.Fatalf("plugin collection wrong (nested manifests must not count): %+v", l)
+	pulse := in(kindApp, "pulse", "", `{"id":"pulse","name":"Pulse","version":"0.4.2"}`)
+	pulse.HubProvider, pulse.IconSVG = true, "<svg/>"
+	return []mpItem{
+		{Slug: "echo", Status: "published", Install: in(kindApp, "echo", "", `{"id":"echo","name":"Echo","version":"0.5.3"}`)},
+		{Slug: "echo-widget", Status: "unlisted", Install: in(kindWidget, "widgets", "echo", `{"id":"echo"}`)},
+		{Slug: "core-widget", Status: "unlisted", Install: in(kindWidget, "widgets", "core", `{"id":"core","locked":true}`)},
+		{Slug: "sysinfo", Status: "published", Install: in(kindWidget, "widgets", "sysinfo", `{"id":"sysinfo"}`)},
+		{Slug: "sys-load", Status: "published", Install: in(kindWidget, "widgets", "sys-load", `{"id":"sys-load","dependsOn":"sysinfo"}`)},
+		{Slug: "binders", Status: "published", Install: in(kindPlugin, "plugins", "binders", `{"id":"binders","dependencies":{"apps":{"dex":">=0.1.0"}}}`)},
+		{Slug: "dex", Status: "published", Install: in(kindApp, "dex", "", `{"id":"dex"}`)},
+		{Slug: "admin", Name: "Admin Console", Status: "published", Install: in(kindApp, "adminpanel", "", `{"id":"admin","locked":true}`)},
+		{Slug: "plugin-runtime", Name: "Plugin Runtime", Status: "published", Install: &mpInstall{Kind: kindService, Repo: "plugin-runtime"}},
+		{Slug: "pulse", Status: "published", Install: pulse},
+		{Slug: "hub", Status: "published"},
+		{Slug: "draft-app", Status: "draft", Install: in(kindApp, "draft-app", "", `{"id":"draft-app"}`)},
+		{Slug: "nope", Status: "rejected", Install: in(kindPlugin, "plugins", "nope", `{"id":"nope"}`)},
 	}
-	if _, ok := classifyRepo([]string{"nucleus.ignore", "nucleus.app.json"}); ok {
-		t.Fatal("nucleus.ignore must exclude the repo")
+}
+
+func TestBuildCatalog(t *testing.T) {
+	mods, colls, warns := buildCatalog(append(feedFixture(),
+		mpItem{Slug: "broken", Status: "published", Install: &mpInstall{Kind: kindPlugin, Repo: "plugins", Dir: "broken"}},
+		mpItem{Slug: "renamed", Status: "published", Install: &mpInstall{Kind: kindWidget, Repo: "widgets", Dir: "old-name", Manifest: json.RawMessage(`{"id":"new-name"}`)}},
+		mpItem{Slug: "stray", Status: "published", Install: &mpInstall{Kind: kindWidget, Repo: "other-widgets", Dir: "stray", Manifest: json.RawMessage(`{"id":"stray"}`)}},
+	))
+
+	var got []string
+	for k := range mods {
+		got = append(got, k)
+	}
+	want := []string{"app:admin", "app:dex", "app:echo", "app:pulse", "plugin:binders", "service:plugin-runtime",
+		"widget:core", "widget:echo", "widget:sys-load", "widget:sysinfo"}
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("modules = %v, want %v (drafts, rejected, platform-only and other-repo entries must be left out)", got, want)
+	}
+	if !reflect.DeepEqual(colls, map[moduleKind]string{kindWidget: "widgets", kindPlugin: "plugins"}) {
+		t.Errorf("collections = %v", colls)
+	}
+	if len(warns) != 2 {
+		t.Errorf("a missing manifest and a folder/id mismatch should each warn: %v", warns)
+	}
+
+	if !reflect.DeepEqual(mods["plugin:binders"].Requires, []string{"app:dex", "service:plugin-runtime"}) {
+		t.Errorf("plugin requires = %v", mods["plugin:binders"].Requires)
+	}
+	if !reflect.DeepEqual(mods["widget:sys-load"].Requires, []string{"widget:core", "widget:sysinfo"}) {
+		t.Errorf("widget requires = %v (its dependsOn plus the collection's locked runtime)", mods["widget:sys-load"].Requires)
+	}
+	if w := mods["widget:core"]; !w.required || !w.Hidden {
+		t.Error("the locked widget runtime must be required and hidden")
+	}
+	if !reflect.DeepEqual(mods["app:echo"].Bundles, []string{"widget:echo"}) || !mods["widget:echo"].Hidden {
+		t.Error("an app must bundle (and hide) the widget sharing its id")
+	}
+	if a := mods["app:admin"]; !a.System || a.Repo != "adminpanel" || a.Name != "Admin Console" {
+		t.Errorf("admin: %+v", mods["app:admin"])
+	}
+	if p := mods["app:pulse"]; p.Hosts != kindWidget || p.Icon != "<svg/>" || p.Version != "0.4.2" {
+		t.Errorf("pulse: %+v", p)
+	}
+}
+
+func TestMarketplaceItems(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.URL.Path != "/api/v1/internal/items" {
+			http.NotFound(w, r)
+			return
+		}
+		if gotAuth != "Bearer nmk_good" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"count": len(feedFixture()), "items": feedFixture()})
+	}))
+	defer srv.Close()
+
+	mp := marketplace{url: srv.URL, token: "nmk_good", client: srv.Client()}
+	mods, _, _, err := fetchCatalog(mp)
+	if err != nil || len(mods) != 10 || gotAuth != "Bearer nmk_good" {
+		t.Fatalf("fetch: %v, %d modules, auth %q", err, len(mods), gotAuth)
+	}
+
+	mp.token = "nmk_revoked"
+	if _, _, _, err := fetchCatalog(mp); err == nil || !strings.Contains(err.Error(), "rejected the token") {
+		t.Errorf("a 401 should say the token was rejected: %v", err)
+	}
+	mp.token = ""
+	if _, _, _, err := fetchCatalog(mp); err == nil || !strings.Contains(err.Error(), "NUCLEUS_MARKETPLACE_TOKEN") {
+		t.Errorf("no token should say how to get one: %v", err)
 	}
 }
 
@@ -176,7 +262,7 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 		t.Helper()
 		mods := mergeModules(catalog, installedModules(p))
 		pl := planModules(mods, install, remove, planOpts{})
-		checkRemovals(p, &pl)
+		checkRemovals(p, &pl, false)
 		if err := executePlan(p, g, mods, pl); err != nil {
 			t.Fatal(err)
 		}
@@ -209,14 +295,40 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 	write(t, filepath.Join(p.apps, "notes", "draft.txt"), "wip")
 	mods := mergeModules(catalog, installedModules(p))
 	pl := planModules(mods, nil, []string{"notes"}, planOpts{})
-	checkRemovals(p, &pl)
-	if len(pl.Errors) == 0 {
-		t.Fatal("removing an app with uncommitted work must be refused")
+	checkRemovals(p, &pl, false)
+	if len(pl.Errors) == 0 || !pl.Dirty {
+		t.Fatal("removing an app with uncommitted work must be refused, and say it can be forced")
+	}
+	forced := planModules(mods, nil, []string{"notes"}, planOpts{})
+	checkRemovals(p, &forced, true)
+	if len(forced.Errors) > 0 || len(forced.Warnings) == 0 {
+		t.Fatalf("force should turn the refusal into a warning: %+v", forced)
 	}
 	os.Remove(filepath.Join(p.apps, "notes", "draft.txt"))
 	write(t, filepath.Join(p.apps, "notes", ".DS_Store"), "finder")
 
-	step(nil, []string{"notes", "moon"})
+	step([]string{"clock"}, nil)
+	write(t, filepath.Join(p.root, "widgets", "moon", "nucleus.widget.json"), `{"id":"moon","edited":true}`)
+	write(t, filepath.Join(p.root, "widgets", "moon", "scratch.txt"), "untracked")
+	mods = mergeModules(catalog, installedModules(p))
+	pl = planModules(mods, nil, []string{"moon"}, planOpts{})
+	checkRemovals(p, &pl, false)
+	if !pl.Dirty {
+		t.Fatal("removing a widget with local edits must be refused")
+	}
+	checkRemovals(p, &pl, true)
+	pl.Errors = nil
+	if err := executePlan(p, g, mods, pl); err != nil {
+		t.Fatalf("forced widget removal: %v", err)
+	}
+	if has("widgets/moon") || !has("widgets/clock/nucleus.widget.json") {
+		t.Fatal("a forced removal should discard the widget's edits and drop only that folder")
+	}
+	if st := gitOut(filepath.Join(p.root, "widgets"), "status", "--porcelain"); st != "" {
+		t.Fatalf("the widgets checkout should be clean after a forced removal: %s", st)
+	}
+
+	step(nil, []string{"notes", "clock"})
 	if has("apps/notes") || has("widgets") {
 		t.Fatal("removing the last widget should remove the whole widgets checkout, and the app its dir")
 	}
@@ -224,7 +336,7 @@ func TestInstallAndRemoveEndToEnd(t *testing.T) {
 
 func TestModulesHandler(t *testing.T) {
 	p := testTree(t)
-	state := &moduleState{p: p, gh: github{org: "acme"}, at: time.Now(),
+	state := &moduleState{p: p, org: "acme", at: time.Now(),
 		cached: map[string]*module{"widget:clock": {Kind: kindWidget, ID: "clock", Name: "Clock", Repo: "widgets", Requires: []string{}, Bundles: []string{}}}}
 	srv := httptest.NewServer(modulesHandler(p, state, "s3cret"))
 	defer srv.Close()

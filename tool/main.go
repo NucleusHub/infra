@@ -91,6 +91,11 @@ Usage:
   nucleus modules [list|install|remove|apply|ui] [ids...]
                             install/remove apps, plugins and widgets from the
                             GitHub org, then apply (infra/modules is the shim)
+  nucleus modules import <build.nucleus.json>
+                            install a build from the site's /create configurator
+                            and apply its appearance
+  nucleus modules appearance [reset]
+                            show (or drop) the imported appearance
 
 Flags (build):
   --force, -f     ignore the build cache and rebuild every unit
@@ -100,7 +105,9 @@ Flags (modules):
   --dev           apply with the dev stack (infra/nucleus up) instead of infra/production
   --no-apply      change the checkout only
   --yes, -y       don't ask for confirmation
+  --force         remove even with uncommitted/unpushed work (discards it)
   --refresh       rescan the org instead of using the cached scan
   --addr A        ui: listen address (default 127.0.0.1:7777)
-  --no-open       ui: don't open a browser`)
+  --no-open       ui: don't open a browser
+  --no-appearance import: install the build's modules, keep the current look`)
 }
