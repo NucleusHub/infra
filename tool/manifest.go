@@ -159,6 +159,7 @@ func coreServices(p paths) []*Manifest {
 			role: "auth",
 			Nginx: &Nginx{Routes: []Route{
 				{Path: "/api/auth", Upstream: "auth-server:3005"},
+				{Path: "/api/v1", Upstream: "auth-server:3005"},
 			}},
 			Server: &Server{
 				Service:        "auth-server",
