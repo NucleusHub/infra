@@ -125,8 +125,8 @@ const manifest = {
       depends: ['mongo'],
       env: {
         MONGODB_URI: 'mongodb://mongo:27017/nucleus',
-        JWT_SECRET: '${JWT_SECRET:-nucleus-jwt-secret}',
       },
+      bindMounts: ['../core:/app/core:ro'],
     },
   } : {}),
 }
@@ -149,10 +149,10 @@ const composeServer = withServer ? `  ${serviceServer}:
       nucleus.app: "${id}"
     environment:
       MONGODB_URI: mongodb://mongo:27017/nucleus
-      JWT_SECRET: \${JWT_SECRET:-nucleus-jwt-secret}
       PORT: ${serverPort}
     volumes:
       - ./server:/app
+      - ../../core:/app/core:ro
       - ${id.replace(/-/g, '_')}_server_modules:/app/node_modules
     depends_on:
       mongo:
@@ -407,20 +407,8 @@ mongoose
   })
 `
 
-  files['server/middleware/auth.js'] = `import jwt from 'jsonwebtoken'
-
-const secret = () => process.env.JWT_SECRET || 'nucleus-jwt-secret'
-
-export function requireAuth(req, res, next) {
-  const token = req.cookies?.nucleus_token
-  if (!token) return res.status(401).json({ error: 'Unauthenticated' })
-  try {
-    req.profile = jwt.verify(token, secret())
-    next()
-  } catch {
-    res.status(401).json({ error: 'Invalid or expired token' })
-  }
-}
+  // Core verifies the session-backed cookie; apps must not check the JWT themselves.
+  files['server/middleware/auth.js'] = `export { requireAuth, verifyToken, verifyProfile } from '../core/server/auth.js'
 `
 
   files['server/routes/main.js'] = `import { Router } from 'express'
