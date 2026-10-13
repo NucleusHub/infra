@@ -143,6 +143,8 @@ func readManifests(baseDir, filename string) ([]*Manifest, error) {
 	return out, nil
 }
 
+var unlimitedBody = "0"
+
 func coreServices(p paths) []*Manifest {
 	authMounts := []string{
 		"../apps:/apps:ro",
@@ -159,7 +161,8 @@ func coreServices(p paths) []*Manifest {
 			role: "auth",
 			Nginx: &Nginx{Routes: []Route{
 				{Path: "/api/auth", Upstream: "auth-server:3005"},
-				{Path: "/api/v1", Upstream: "auth-server:3005"},
+				// Upload limits are admin-configurable and enforced by the app servers, not nginx.
+				{Path: "/api/v1", Upstream: "auth-server:3005", MaxBodySize: &unlimitedBody},
 			}},
 			Server: &Server{
 				Service:        "auth-server",
