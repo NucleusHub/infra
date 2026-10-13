@@ -81,7 +81,32 @@ func optionalModules(p paths) modules {
 	}
 }
 
-func pluginsLocation(p paths) string {
+// The dev nginx terminates TLS itself, so it is the authoritative source of these;
+// overwriting X-Forwarded-For stops clients spoofing req.ip (auth-server trusts 1 hop).
+const devForwardHeaders = `
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $remote_addr;`
+
+// The stack sits behind the edge: keep the edge's values, pass X-Forwarded-For through.
+const stackForwardHeaders = `
+        proxy_set_header X-Forwarded-Proto $nucleus_forwarded_proto;
+        proxy_set_header X-Forwarded-Host $nucleus_forwarded_host;`
+
+// http-level (conf.d is included inside http{}); falls back when hit directly on the debug port.
+const stackForwardMaps = `map $http_x_forwarded_proto $nucleus_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+map $http_x_forwarded_host $nucleus_forwarded_host {
+    default $http_x_forwarded_host;
+    ''      $http_host;
+}
+
+`
+
+func pluginsLocation(p paths, fwd string) string {
 	if !optionalModules(p).pluginRuntime {
 		return `
     location /api/plugins {
@@ -98,7 +123,7 @@ func pluginsLocation(p paths) string {
         proxy_pass http://$plugins_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;` + fwd + `
     }`
 }
 
@@ -211,7 +236,7 @@ func joinLibsOr(libs []hubLib, fallback string) string {
 	return strings.Join(ids, ", ")
 }
 
-func nginxLocation(r Route) string {
+func nginxLocation(r Route, fwd string) string {
 	ws := ""
 	if r.Websocket {
 		ws = `
@@ -252,8 +277,8 @@ func nginxLocation(r Route) string {
         proxy_pass http://$upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;%s
-    }`, r.Path, corsBlock, sizeBlock, fbBlock, r.Upstream, ws)
+        proxy_set_header X-Real-IP $remote_addr;%s%s
+    }`, r.Path, corsBlock, sizeBlock, fbBlock, r.Upstream, fwd, ws)
 }
 
 func collectRoutes(p paths, apps, widgets []*Manifest, tagFallback bool) []Route {
@@ -280,7 +305,7 @@ func generateNginx(p paths, apps, widgets []*Manifest) string {
 	routes := collectRoutes(p, apps, widgets, true)
 	var blocks []string
 	for _, r := range routes {
-		blocks = append(blocks, nginxLocation(r))
+		blocks = append(blocks, nginxLocation(r, devForwardHeaders))
 	}
 
 	return `# Redirect nucleus.olm-altair.ts.net HTTP traffic to HTTPS (external access with TLS cert)
@@ -309,9 +334,9 @@ server {
         proxy_pass http://$registry_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;` + devForwardHeaders + `
     }
-` + pluginsLocation(p) + `
+` + pluginsLocation(p, devForwardHeaders) + `
 
     # Maintenance flag — a static file written by infra/maintenance and served by
     # nginx (not an app server), so it stays reachable while apps are rebuilt.
@@ -345,7 +370,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;` + devForwardHeaders + `
         # If the hub dev server is down, show the Anchor recovery page.
         proxy_intercept_errors on;
         error_page 502 503 504 = @anchor_fallback;
@@ -374,7 +399,7 @@ func generateStackNginx(p paths, apps, widgets []*Manifest) string {
 
 	var apiBlocks []string
 	for _, r := range apiRoutes {
-		apiBlocks = append(apiBlocks, nginxLocation(r))
+		apiBlocks = append(apiBlocks, nginxLocation(r, stackForwardHeaders))
 	}
 
 	var spaBlocks []string
@@ -387,7 +412,7 @@ func generateStackNginx(p paths, apps, widgets []*Manifest) string {
     }`, r.Path, dir))
 	}
 
-	return `# Per-color web server. TLS + HTTP→HTTPS redirect are handled by the edge proxy;
+	return stackForwardMaps + `# Per-color web server. TLS + HTTP→HTTPS redirect are handled by the edge proxy;
 # this server listens plain HTTP and is reached over the edge network (and a
 # debug host port). Upstreams resolve to this color's own servers.
 server {
@@ -404,9 +429,9 @@ server {
         proxy_pass http://$registry_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;` + stackForwardHeaders + `
     }
-` + pluginsLocation(p) + `
+` + pluginsLocation(p, stackForwardHeaders) + `
 
     # Maintenance flag — a static file written by infra/maintenance and served by
     # nginx (not an app server), so it stays reachable while apps are rebuilt.
@@ -488,6 +513,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_read_timeout 3600s;

@@ -38,7 +38,7 @@ func TestMinimalSetupHasNoOptionalModules(t *testing.T) {
 			t.Errorf("minimal override mentions %q:\n%s", bad, override)
 		}
 	}
-	if !strings.Contains(pluginsLocation(p), `return 200 '{"plugins":[]}'`) {
+	if !strings.Contains(pluginsLocation(p, devForwardHeaders), `return 200 '{"plugins":[]}'`) {
 		t.Error("without plugin-runtime, /api/plugins should answer an empty registry")
 	}
 }
@@ -66,7 +66,7 @@ func TestOptionalModulesAreWiredWhenInstalled(t *testing.T) {
 			t.Errorf("override missing %q:\n%s", want, override)
 		}
 	}
-	if !strings.Contains(pluginsLocation(p), "plugin-runtime:4100") {
+	if !strings.Contains(pluginsLocation(p, devForwardHeaders), "plugin-runtime:4100") {
 		t.Error("with plugin-runtime installed, /api/plugins should proxy to it")
 	}
 }
